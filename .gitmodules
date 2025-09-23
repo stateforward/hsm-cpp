@@ -1,21 +1,2 @@
-[submodule "cpp"]
-	path = cpp
-	url = ./cpp
-[submodule "go"]
-	path = go
-	url = ./go
-[submodule "typescript"]
-	path = typescript
-	url = ./typescript
-[submodule "javascript"]
-	path = javascript
-	url = ./javascript
-[submodule "python"]
-	path = python
-	url = ./python
-[submodule "rust"]
-	path = rust
-	url = ./rust
-[submodule "zig"]
-	path = zig
-	url = ./zig
+# This repository is now a submodule of the main HSM monorepo
+# Individual language implementations are managed at the monorepo level
