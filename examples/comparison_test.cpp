@@ -4,6 +4,13 @@
 
 #include "hsm.hpp"
 
+#include "cthsm/cthsm.hpp"
+
+// Noop behaviors for fair comparison
+void noopEntry() {}
+void noopExit() {}
+void noopEffect() {}
+
 // Simple enum-based state machine for comparison
 enum class SimpleState { Idle, Active, Processing };
 
@@ -16,19 +23,28 @@ class SimpleStateMachine {
     switch (current_state) {
       case SimpleState::Idle:
         if (event == "start") {
+          noopExit();  // Exit idle
+          noopEffect();  // Transition effect
           current_state = SimpleState::Active;
+          noopEntry();  // Enter active
           transition_count++;
         }
         break;
       case SimpleState::Active:
         if (event == "process") {
+          noopExit();  // Exit active
+          noopEffect();  // Transition effect
           current_state = SimpleState::Processing;
+          noopEntry();  // Enter processing
           transition_count++;
         }
         break;
       case SimpleState::Processing:
         if (event == "finish") {
+          noopExit();  // Exit processing
+          noopEffect();  // Transition effect
           current_state = SimpleState::Idle;
+          noopEntry();  // Enter idle
           transition_count++;
         }
         break;
@@ -52,6 +68,9 @@ void noBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
                 hsm::Event& /*event*/) {
   // Do nothing
 }
+
+// Behaviors for CTHSM
+void cthsmBehavior(cthsm::Context&, cthsm::Instance&, const cthsm::Event&) {}
 
 int main() {
   const int iterations = 100000;
@@ -139,6 +158,51 @@ int main() {
               << std::endl;
     std::cout << "Final state: " << instance.state() << std::endl;
     hsm::stop(instance).wait();
+  }
+
+  // Test CTHSM implementation
+  {
+    std::cout << "\n--- CTHSM Implementation ---" << std::endl;
+
+    using namespace cthsm;
+    constexpr auto model = define(
+        "ComparisonCTHSM",
+        state("idle", entry(cthsmBehavior), exit(cthsmBehavior),
+              transition(on("start"), target("active"), effect(cthsmBehavior))),
+        state("active", entry(cthsmBehavior), exit(cthsmBehavior),
+              transition(on("process"), target("processing"), effect(cthsmBehavior))),
+        state("processing", entry(cthsmBehavior), exit(cthsmBehavior),
+              transition(on("finish"), target("idle"), effect(cthsmBehavior))),
+        initial(target("idle")));
+
+    cthsm::compile<model> sm;
+    cthsm::Instance instance;
+    sm.start(instance);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < iterations; ++i) {
+      sm.dispatch(instance, "start");
+      sm.dispatch(instance, "process");
+      sm.dispatch(instance, "finish");
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+    int total_transitions = iterations * 3;
+    std::cout << "Total time: " << duration.count() << " μs" << std::endl;
+    std::cout << "Transitions: " << total_transitions << std::endl;
+    std::cout << "μs per transition: "
+              << static_cast<double>(duration.count()) / total_transitions
+              << std::endl;
+    std::cout << "Transitions per second: "
+              << static_cast<int>(
+                     total_transitions /
+                     (static_cast<double>(duration.count()) / 1000000.0))
+              << std::endl;
+    std::cout << "Final state: " << sm.state() << std::endl;
   }
 
   std::cout << "\n=== Memory Footprint Analysis ===" << std::endl;
