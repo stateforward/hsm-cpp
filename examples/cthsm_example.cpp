@@ -1,28 +1,17 @@
 #include <iostream>
 
-#include "../include/cthsm.hpp"
+#include "cthsm/cthsm.hpp"
 
-// Example of compile-time HSM usage
 int main() {
-  // Define the model with exact same syntax as runtime HSM
-  auto model = cthsm::define(
-      "light", cthsm::initial(cthsm::target("off")),
-      cthsm::state(
-          "off", cthsm::transition(cthsm::on("turn_on"), cthsm::target("on"))),
-      cthsm::state("on", cthsm::transition(cthsm::on("turn_off"),
-                                           cthsm::target("off"))));
+  constexpr auto model = cthsm::define("example");
+  cthsm::compile<model> machine;
+  cthsm::Instance inst;
+  machine.start(inst);
 
-  // Compile it
-  cthsm::compile<decltype(model)> sm;
+  const auto state = machine.state();
+  std::cout << "cthsm example current state: "
+            << (state.empty() ? "<none>" : std::string(state)) << '\n';
 
-  // Use it
-  std::cout << "Initial state: " << sm.state() << "\n";
-
-  sm.dispatch("turn_on");
-  std::cout << "After turn_on: " << sm.state() << "\n";
-
-  sm.dispatch("turn_off");
-  std::cout << "After turn_off: " << sm.state() << "\n";
-
+  machine.dispatch(inst, "noop");
   return 0;
 }

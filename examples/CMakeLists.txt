@@ -12,3 +12,6 @@
 #     target_include_directories(${EXAMPLE_NAME} PRIVATE ${GPERFTOOLS_INCLUDE_DIR})
 #     target_link_libraries(${EXAMPLE_NAME} PRIVATE hsm doctest ${GPERFTOOLS_PROFILER} ${GPERFTOOLS_TCMALLOC})
 # endforeach()
+
+add_executable(cthsm_example cthsm_example.cpp)
+target_link_libraries(cthsm_example PRIVATE cthsm)

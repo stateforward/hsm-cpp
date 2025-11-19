@@ -31,9 +31,11 @@ struct StringViewHash {
   std::size_t operator()(std::string_view sv) const {
     return std::hash<std::string_view>{}(sv);
   }
-  std::size_t operator()(const std::string& s)
-      const {  // Needed for hashing keys of type std::string
-    return std::hash<std::string>{}(s);
+  std::size_t operator()(const std::string& s) const {
+    return (*this)(std::string_view(s));
+  }
+  std::size_t operator()(const char* s) const {
+    return (*this)(std::string_view(s));
   }
 };
 
@@ -41,17 +43,32 @@ struct StringViewHash {
 struct StringViewEqual {
   using is_transparent = void;
 
-  bool operator()(const std::string& lhs,
-                  const std::string& rhs) const {  // string == string
+  bool operator()(std::string_view lhs, std::string_view rhs) const {
     return lhs == rhs;
   }
-  bool operator()(std::string_view lhs,
-                  const std::string& rhs) const {  // string_view == string
+  bool operator()(const std::string& lhs, std::string_view rhs) const {
+    return std::string_view(lhs) == rhs;
+  }
+  bool operator()(std::string_view lhs, const std::string& rhs) const {
+    return lhs == std::string_view(rhs);
+  }
+  bool operator()(const std::string& lhs, const std::string& rhs) const {
     return lhs == rhs;
   }
-  bool operator()(const std::string& lhs,
-                  std::string_view rhs) const {  // string == string_view
-    return lhs == rhs;
+  bool operator()(const char* lhs, std::string_view rhs) const {
+    return std::string_view(lhs) == rhs;
+  }
+  bool operator()(std::string_view lhs, const char* rhs) const {
+    return lhs == std::string_view(rhs);
+  }
+  bool operator()(const std::string& lhs, const char* rhs) const {
+    return std::string_view(lhs) == std::string_view(rhs);
+  }
+  bool operator()(const char* lhs, const std::string& rhs) const {
+    return std::string_view(lhs) == std::string_view(rhs);
+  }
+  bool operator()(const char* lhs, const char* rhs) const {
+    return std::string_view(lhs) == std::string_view(rhs);
   }
 };
 
@@ -102,6 +119,10 @@ class StdThreadProvider : public TaskProvider {
 
     void join() override {
       if (thread_.joinable()) {
+        if (std::this_thread::get_id() == thread_.get_id()) {
+          thread_.detach();
+          return;
+        }
         thread_.join();
       }
     }
@@ -503,6 +524,11 @@ struct Instance {
   friend struct HSM;
 
   HSM* __hsm = nullptr;
+  Instance() = default;
+  Instance(const Instance&) = delete;
+  Instance& operator=(const Instance&) = delete;
+  Instance(Instance&&) = delete;
+  Instance& operator=(Instance&&) = delete;
   virtual ~Instance() = default;
 
   Context& dispatch(Event event);
@@ -518,11 +544,28 @@ struct Instance {
 inline std::shared_ptr<TaskProvider> Instance::null_task_provider_ =
     default_task_provider();
 
+inline std::vector<std::string_view> event_name_variants(
+    std::string_view event_name) {
+  std::vector<std::string_view> variants;
+  variants.reserve(4);
+  variants.push_back(event_name);
+
+  std::string_view current = event_name;
+  while (!current.empty()) {
+    auto pos = current.find_last_of("_/");
+    if (pos == std::string_view::npos) break;
+    current = current.substr(0, pos);
+    if (current.empty()) break;
+    variants.push_back(current);
+  }
+  return variants;
+}
+
 struct Active {
   std::unique_ptr<TaskHandle> task;
-  std::unique_ptr<Context> signal;
+  std::shared_ptr<Context> signal;
 
-  Active(std::unique_ptr<TaskHandle>&& t, std::unique_ptr<Context>&& s)
+  Active(std::unique_ptr<TaskHandle>&& t, std::shared_ptr<Context>&& s)
       : task(std::move(t)), signal(std::move(s)) {}
 
   // Make Active movable but not copyable
@@ -555,8 +598,8 @@ inline void buildTransitionTable(Model& model) {
       // Try to get the element at current path
       auto* current_element = model.get_any_member(current_path);
       if (!current_element) {
-        // Special case: if current_path is the model name but we can't find it in members,
-        // use the model itself
+        // Special case: if current_path is the model name but we can't find it
+        // in members, use the model itself
         if (current_path == model.qualified_name()) {
           current_element = &model;
         } else {
@@ -854,13 +897,15 @@ struct HSM : public Instance {
   }
 
   // Find enabled transition using O(1) lookup
-  Transition* findEnabledTransition(const std::string& state_name,
-                                    Event& event) {
+  Transition* findEnabledTransition(
+      const std::string& state_name, Event& event,
+      const std::vector<std::string_view>& event_names) {
     // Look up transitions for this state (includes ancestor transitions)
     auto state_it = model_.transition_map.find(state_name);
     if (state_it != model_.transition_map.end()) {
-      auto event_it = state_it->second.find(event.name);
-      if (event_it != state_it->second.end()) {
+      for (auto key : event_names) {
+        auto event_it = state_it->second.find(key);
+        if (event_it == state_it->second.end()) continue;
         // Check guards and return first enabled transition
         for (auto* transition : event_it->second) {
           if (!transition->guard.empty()) {
@@ -886,6 +931,11 @@ struct HSM : public Instance {
     while (!queue_.empty()) {
       auto event = queue_.pop();
 
+      auto event_names = event_name_variants(event.name);
+      if (event_names.empty()) {
+        event_names.emplace_back(event.name);
+      }
+
       auto* state = current_state_.load();
       if (!state) {
         continue;
@@ -896,9 +946,12 @@ struct HSM : public Instance {
       std::string state_name(state->qualified_name());
       auto deferred_it = model_.deferred_map.find(state_name);
       if (deferred_it != model_.deferred_map.end()) {
-        auto event_it = deferred_it->second.find(event.name);
-        if (event_it != deferred_it->second.end() && event_it->second) {
-          is_deferred = true;
+        for (auto key : event_names) {
+          auto event_it = deferred_it->second.find(key);
+          if (event_it != deferred_it->second.end() && event_it->second) {
+            is_deferred = true;
+            break;
+          }
         }
       }
 
@@ -909,7 +962,8 @@ struct HSM : public Instance {
       }
 
       // O(1) transition lookup
-      auto* triggered_transition = findEnabledTransition(state_name, event);
+      auto* triggered_transition =
+          findEnabledTransition(state_name, event, event_names);
 
       if (triggered_transition) {
         auto* old_state = state;
@@ -1164,13 +1218,13 @@ struct HSM : public Instance {
       // Now we need the string for storage
       std::string behavior_name(behavior_name_view);
 
-      // Create a unique_ptr for the Signal
-      auto ctx = std::make_unique<Context>();
-      Context* ctx_ptr = ctx.get();  // Get raw pointer for the lambda
+      // Create a shared_ptr for the Signal
+      auto ctx = std::make_shared<Context>();
 
+      // Capture shared_ptr to keep Context alive
       auto task = task_provider_->create_task(
-          [this, behavior, event, ctx_ptr]() mutable {
-            behavior->method(*ctx_ptr, instance_, event);
+          [this, behavior, event, ctx]() mutable {
+            behavior->method(*ctx, instance_, event);
           },
           behavior_name, 0, 0);
 
@@ -1288,7 +1342,7 @@ struct PartialTransition : Partial {
     if (!source_vertex) {
       source_vertex = model.get_member<Vertex>(trans_ptr->source);
     }
-    
+
     // Special case: if source is the model itself, add transition to the model
     if (!source_vertex && trans_ptr->source == model.qualified_name()) {
       source_vertex = &model;
@@ -1420,7 +1474,8 @@ struct PartialTransition : Partial {
             TransitionPath child_path;
             if (!is_kind(trans_ptr->kind(), Kind::Internal)) {
               if (is_kind(trans_ptr->kind(), Kind::Self)) {
-                // For self transitions, child states should exit if they're active
+                // For self transitions, child states should exit if they're
+                // active
                 child_path.exit.push_back(std::string(member_qn));
                 // No enter path for child states in self transitions
               } else {
@@ -1510,11 +1565,20 @@ struct PartialSource : Partial {
       std::string resolved_name = source_name;
 
       if (!path::is_absolute(source_name)) {
-        // For relative paths, find the nearest State ancestor
-        auto* ancestor = find_in_stack<State>(stack, Kind::State);
-        if (ancestor) {
-          resolved_name = path::join(ancestor->qualified_name(), source_name);
-        }
+        auto* base_vertex = find_in_stack<Vertex>(stack, Kind::Vertex);
+        auto resolve_base = [&](bool self_ref) -> std::string {
+          if (!base_vertex) return std::string(model.qualified_name());
+          if (!self_ref && is_kind(base_vertex->kind(), Kind::Initial)) {
+            auto owner_path = base_vertex->owner();
+            if (!owner_path.empty() && owner_path != ".") {
+              return std::string(owner_path);
+            }
+          }
+          return std::string(base_vertex->qualified_name());
+        };
+
+        resolved_name =
+            path::join(resolve_base(false), std::string_view(source_name));
       } else if (!path::is_ancestor(model.qualified_name(), source_name)) {
         // For absolute paths not under the model, prepend model name
         // Remove leading '/' from source_name before joining
@@ -1542,19 +1606,33 @@ struct PartialTarget : Partial {
       std::string resolved_name = target_name;
 
       if (!path::is_absolute(target_name)) {
-        // Special case for self-transition  
+        auto resolve_base = [&]() -> std::string {
+          bool uses_explicit_relative =
+              !target_name.empty() && target_name.front() == '.';
+          auto* vertex = find_in_stack<Vertex>(stack, Kind::Vertex);
+          if (vertex) {
+            const bool is_initial = is_kind(vertex->kind(), Kind::Initial);
+            if ((uses_explicit_relative && !is_initial) ||
+                is_kind(vertex->kind(), Kind::State)) {
+              return std::string(vertex->qualified_name());
+            }
+            auto owner_path = vertex->owner();
+            if (!owner_path.empty() && owner_path != ".") {
+              return std::string(owner_path);
+            }
+          }
+          auto* state_owner = find_in_stack<State>(stack, Kind::State);
+          if (state_owner) {
+            return std::string(state_owner->qualified_name());
+          }
+          return std::string(model.qualified_name());
+        };
+
+        auto base_path = resolve_base();
         if (target_name == ".") {
-          // Find the source state in the stack
-          auto* state = find_in_stack<State>(stack, Kind::State);
-          if (state && state != &model) {
-            resolved_name = state->qualified_name();
-          }
+          resolved_name = base_path;
         } else {
-          // For relative paths, find the nearest State ancestor
-          auto* ancestor = find_in_stack<State>(stack, Kind::State);
-          if (ancestor) {
-            resolved_name = path::join(ancestor->qualified_name(), target_name);
-          }
+          resolved_name = path::join(base_path, std::string_view(target_name));
         }
       } else if (!path::is_ancestor(model.qualified_name(), target_name)) {
         // For absolute paths not under the model, prepend model name
@@ -1811,17 +1889,21 @@ class AfterBehavior : public Partial {
         duration_func_(std::move(duration_func)) {}
 
   void apply(Model& model, std::vector<ElementInterface*>& /*stack*/) override {
-    std::cerr << "DEBUG: AfterBehavior::apply called for transition_source: " << transition_source_ << std::endl;
+    std::cerr << "DEBUG: AfterBehavior::apply called for transition_source: "
+              << transition_source_ << std::endl;
     auto* source_state = model.get_member<State>(transition_source_);
     if (!source_state) {
-      std::cerr << "DEBUG: AfterBehavior::apply - source_state not found!" << std::endl;
+      std::cerr << "DEBUG: AfterBehavior::apply - source_state not found!"
+                << std::endl;
       return;
     }
-    std::cerr << "DEBUG: AfterBehavior::apply - source_state found: " << source_state->qualified_name() << std::endl;
+    std::cerr << "DEBUG: AfterBehavior::apply - source_state found: "
+              << source_state->qualified_name() << std::endl;
 
     // Create activity name
     std::string activity_name = std::string(source_state->qualified_name()) +
-                                "/activity_" + std::to_string(model.members.size());
+                                "/activity_" +
+                                std::to_string(model.members.size());
 
     // Create the timer activity behavior
     auto timer_behavior = std::make_unique<Behavior>(
@@ -1829,14 +1911,17 @@ class AfterBehavior : public Partial {
         std::function<void(Context&, T&, Event&)>(
             [event_name = event_name_, duration_func = duration_func_](
                 Context& signal, T& hsm, Event& event) {
-              std::cerr << "DEBUG: Timer behavior started for event: " << event_name << std::endl;
-              
+              std::cerr << "DEBUG: Timer behavior started for event: "
+                        << event_name << std::endl;
+
               // Calculate duration using the provided function
               auto duration = duration_func(signal, hsm, event);
-              std::cerr << "DEBUG: Timer duration: " << duration.count() << "ms" << std::endl;
-              
+              std::cerr << "DEBUG: Timer duration: " << duration.count() << "ms"
+                        << std::endl;
+
               if (duration <= D(0)) {
-                std::cerr << "DEBUG: Timer duration <= 0, returning" << std::endl;
+                std::cerr << "DEBUG: Timer duration <= 0, returning"
+                          << std::endl;
                 return;
               }
 
@@ -1846,24 +1931,31 @@ class AfterBehavior : public Partial {
               std::cerr << "DEBUG: Timer sleep completed" << std::endl;
 
               if (signal.is_set()) {
-                std::cerr << "DEBUG: Signal is set, timer cancelled" << std::endl;
+                std::cerr << "DEBUG: Signal is set, timer cancelled"
+                          << std::endl;
                 return;
               }
 
               // Only dispatch if we are still in the same state
-              std::cerr << "DEBUG: Timer dispatching event via instance: " << event_name << std::endl;
+              std::cerr << "DEBUG: Timer dispatching event via instance: "
+                        << event_name << std::endl;
               Event time_event(event_name, Kind::TimeEvent);
-              
+
               // Use Instance dispatch instead of HSM dispatch to avoid deadlock
-              hsm.Instance::dispatch(std::move(time_event));
-              std::cerr << "DEBUG: Timer event dispatched via instance" << std::endl;
+              auto& ctx = hsm.Instance::dispatch(std::move(time_event));
+              ctx.wait();
+              std::cerr << "DEBUG: Timer event dispatched via instance"
+                        << std::endl;
             }),
         Kind::Concurrent);
 
-    std::cerr << "DEBUG: AfterBehavior::apply - creating activity: " << activity_name << std::endl;
+    std::cerr << "DEBUG: AfterBehavior::apply - creating activity: "
+              << activity_name << std::endl;
     model.set_member(activity_name, std::move(timer_behavior));
     source_state->activities.push_back(activity_name);
-    std::cerr << "DEBUG: AfterBehavior::apply - added activity to state, activities count: " << source_state->activities.size() << std::endl;
+    std::cerr << "DEBUG: AfterBehavior::apply - added activity to state, "
+                 "activities count: "
+              << source_state->activities.size() << std::endl;
   }
 };
 
@@ -1915,7 +2007,7 @@ class EveryBehavior : public Partial {
 
                 // Only dispatch if HSM is still running
                 Event time_event(event_name, Kind::TimeEvent);
-                hsm.dispatch(std::move(time_event));
+                hsm.dispatch(std::move(time_event)).wait();
               }
             }),
         Kind::Concurrent);
@@ -1943,14 +2035,17 @@ class PartialAfter : public Partial {
       return;
     }
 
-    std::cerr << "DEBUG: Found transition: " << transition->qualified_name() << std::endl;
+    std::cerr << "DEBUG: Found transition: " << transition->qualified_name()
+              << std::endl;
 
-    // Determine the source from the stack context since transition->source isn't set yet
+    // Determine the source from the stack context since transition->source
+    // isn't set yet
     std::string source_name;
     auto* owner = find_in_stack<Vertex>(stack, Kind::Vertex);
     if (owner) {
       source_name = std::string(owner->qualified_name());
-      std::cerr << "DEBUG: Determined source from stack: " << source_name << std::endl;
+      std::cerr << "DEBUG: Determined source from stack: " << source_name
+                << std::endl;
     } else {
       std::cerr << "DEBUG: No owner found in stack!" << std::endl;
       return;
@@ -1966,9 +2061,9 @@ class PartialAfter : public Partial {
     transition->events.push_back(event_name);
 
     // Create and add the AfterBehavior partial
-    model.add(std::make_unique<AfterBehavior<D, T>>(
-        event_name, source_name, duration_func_));
-    
+    model.add(std::make_unique<AfterBehavior<D, T>>(event_name, source_name,
+                                                    duration_func_));
+
     std::cerr << "DEBUG: Added AfterBehavior to owned_elements" << std::endl;
   }
 };
@@ -1988,6 +2083,19 @@ class PartialEvery : public Partial {
       return;
     }
 
+    // Determine the source from the stack context since transition->source may
+    // not be initialized yet
+    std::string source_name;
+    if (transition->source.empty()) {
+      if (auto* owner = find_in_stack<Vertex>(stack, Kind::Vertex)) {
+        source_name = std::string(owner->qualified_name());
+      } else {
+        source_name = std::string(model.qualified_name());
+      }
+    } else {
+      source_name = transition->source;
+    }
+
     // Create unique event name for this timer
     std::string event_name = std::string(transition->qualified_name()) +
                              "_every_" + std::to_string(model.members.size());
@@ -1996,8 +2104,8 @@ class PartialEvery : public Partial {
     transition->events.push_back(event_name);
 
     // Create and add the EveryBehavior partial
-    model.add(std::make_unique<EveryBehavior<D, T>>(
-        event_name, transition->source, duration_func_));
+    model.add(std::make_unique<EveryBehavior<D, T>>(event_name, source_name,
+                                                    duration_func_));
   }
 };
 

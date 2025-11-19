@@ -1,5 +1,8 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.16)
 project(hsm VERSION 0.1.0)
+
+# Workaround for doctest FetchContent compatibility
+set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,14 +49,16 @@ FetchContent_MakeAvailable(doctest)
 
 
 
-# Add header-only library
+# Add header-only libraries
 add_library(hsm INTERFACE)
+add_library(cthsm INTERFACE)
 
-# target_include_directories(hsm INTERFACE ${spdlog_SOURCE_DIR}/include)
 target_include_directories(hsm INTERFACE ${doctest_SOURCE_DIR})
-
-# Set include directories
 target_include_directories(hsm INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_include_directories(cthsm INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
