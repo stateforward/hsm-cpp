@@ -142,6 +142,17 @@ consteval model_counts count_recursive(
   return counts;
 }
 
+// Final Expression
+template <typename Name>
+consteval model_counts count_recursive(
+    const final_expr<Name>& node, std::size_t parent_path_len) {
+  std::size_t current_len = parent_path_len + 1 + node.name.size();
+  model_counts counts{};
+  counts.states += 1;
+  counts.string_size += current_len;
+  return counts;
+}
+
 // Transition Expression
 template <typename... Partials>
 consteval model_counts count_recursive(
@@ -466,6 +477,30 @@ constexpr void collect_states(ModelData& data, populate_ctx<ModelData>& ctx,
     collect_state_node(data, ctx, node, parent_path, parent_id, state_flags::choice);
 }
 
+template <typename ModelData, typename Name>
+constexpr void collect_states(ModelData& data, populate_ctx<ModelData>& ctx, 
+                              const final_expr<Name>& node, std::string_view parent_path, std::size_t parent_id) {
+    std::size_t id = ctx.state_idx++;
+    std::size_t offset = ctx.string_cursor;
+    
+    if (!parent_path.empty()) {
+        ctx.append_string(data, parent_path);
+    }
+    
+    ctx.append_string(data, "/");
+    ctx.append_string(data, node.name.view());
+    
+    std::size_t length = ctx.string_cursor - offset;
+    
+    data.states[id] = state_desc{
+        .id = id,
+        .name_offset = offset,
+        .name_length = length,
+        .parent_id = parent_id,
+        .flags = state_flags::final
+    };
+}
+
 template <typename ModelData, typename... Partials>
 constexpr void collect_states(ModelData& data, populate_ctx<ModelData>& ctx, 
                               const initial_expr<Partials...>& node, std::string_view parent_path, std::size_t parent_id) {
@@ -518,6 +553,13 @@ constexpr void collect_transitions(ModelData& data, populate_ctx<ModelData>& ctx
                                    const choice_expr<Name, Partials...>& node, std::size_t) {
     std::size_t my_id = ctx.state_idx++;
     collect_transitions_partials(data, ctx, node.elements, my_id);
+}
+
+template <typename ModelData, typename Name>
+constexpr void collect_transitions(ModelData& /*data*/, populate_ctx<ModelData>& ctx,
+                                   const final_expr<Name>& /*node*/, std::size_t) {
+    // Final states have no children/transitions to collect
+    ctx.state_idx++;
 }
 
 template <typename ModelData, typename... Actions>
@@ -704,12 +746,18 @@ constexpr void collect_transitions(ModelData& data, populate_ctx<ModelData>& ctx
         std::string_view target_path = get_target_path<decltype(node.elements), 0>(node.elements);
         std::size_t target_id = resolve_target(data, target_path, current_state_id);
         
+        std::size_t effect_start = invalid_index;
+        std::size_t effect_count = 0;
+        get_effect_info<decltype(node.elements), 0>(node.elements, effect_start, effect_count, ctx.effect_idx);
+        
         data.transitions[transition_id] = transition_desc{
             .id = transition_id,
             .source_id = current_state_id, 
             .target_id = target_id,
             .kind = transition_kind::local,
-            .event_id = invalid_index 
+            .event_id = invalid_index,
+            .effect_start = effect_start,
+            .effect_count = effect_count
         };
         
         // Recurse for other things?

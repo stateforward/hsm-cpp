@@ -5,6 +5,11 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <atomic>
+#include <vector>
+#include <optional>
+#include <chrono>
+#include <array>
 
 #include "cthsm/detail/expressions.hpp"
 #include "cthsm/detail/normalize.hpp"
@@ -15,8 +20,49 @@
 namespace cthsm {
 
 struct Context {
-  constexpr void set() noexcept {}
-  [[nodiscard]] constexpr bool is_set() const noexcept { return false; }
+  constexpr Context() = default;
+  ~Context() = default;
+
+  Context(const Context&) = delete;
+  Context& operator=(const Context&) = delete;
+  Context(Context&&) = delete;
+  Context& operator=(Context&&) = delete;
+
+  void set() {
+    flag_.store(true, std::memory_order_release);
+  }
+
+  [[nodiscard]] bool is_set() const { return flag_.load(std::memory_order_acquire); }
+
+  void wait() {
+    while (!flag_.load(std::memory_order_acquire)) {
+        // Spin/yield hint could go here
+    }
+  }
+
+  void reset() { flag_.store(false, std::memory_order_release); }
+
+ private:
+  std::atomic_bool flag_{false};
+};
+
+// Default sequential provider (no threading dependencies)
+struct SequentialTaskProvider {
+  struct TaskHandle {
+    void join() {} // Already finished
+    bool joinable() const { return false; }
+  };
+
+  template <typename F>
+  TaskHandle create_task(F&& f, const char* /*name*/ = nullptr, size_t /*stack*/ = 0, int /*prio*/ = 0) {
+    // execute immediately (sequential)
+    f();
+    return TaskHandle{};
+  }
+
+  void sleep_for(std::chrono::milliseconds /*duration*/) {
+    // No-op in sequential default
+  }
 };
 
 struct Event {
@@ -206,16 +252,17 @@ template <std::size_t N, typename... Partials>
                 std::forward<Partials>(partials)...);
 }
 
-template <auto Model, typename InstanceType = Instance>
+template <auto Model, typename InstanceType = Instance, typename TaskProvider = SequentialTaskProvider>
 struct compile {
   static constexpr auto model_ = Model;
   using instance_type = InstanceType;
+  using TaskProviderType = TaskProvider;
 
-  // Expose the normalized model value
+  // 1. Model Normalization & Tables
   static constexpr auto normalized_model = detail::normalize<model_>();
   static constexpr auto tables = detail::build_tables(normalized_model);
 
-  // Behavior Extraction
+  // 2. Behavior Extraction
   static constexpr auto entry_tuple = detail::extract_entries(model_);
   static constexpr auto exit_tuple = detail::extract_exits(model_);
   static constexpr auto activity_tuple = detail::extract_activities(model_);
@@ -223,20 +270,42 @@ struct compile {
   static constexpr auto effect_tuple = detail::extract_effects(model_);
   static constexpr auto timer_tuple = detail::extract_timers(model_);
 
-  // Behavior Tables (Thunks)
+  // 3. Activity Tracking Definitions
+  static constexpr std::size_t total_activity_count = std::tuple_size_v<decltype(activity_tuple)>;
+  
+  struct ActiveTask {
+    typename TaskProvider::TaskHandle task;
+    Context* ctx;
+  };
+
+  // 4. Thunk Types & Functions
   using behavior_fn = void (*)(Context&, instance_type&, const Event&);
   using guard_fn = bool (*)(Context&, instance_type&, const Event&);
-  using timer_fn = void (*)(Context&, instance_type&, std::size_t); 
+  using timer_fn = void (*)(Context&, instance_type&, const Event&, std::size_t); 
 
-  template <std::size_t I> static void entry_thunk(Context& c, instance_type& i, const Event& e) { std::get<I>(entry_tuple)(c, i, e); }
-  template <std::size_t I> static void exit_thunk(Context& c, instance_type& i, const Event& e) { std::get<I>(exit_tuple)(c, i, e); }
-  template <std::size_t I> static void activity_thunk(Context& c, instance_type& i, const Event& e) { std::get<I>(activity_tuple)(c, i, e); }
-  template <std::size_t I> static void effect_thunk(Context& c, instance_type& i, const Event& e) { std::get<I>(effect_tuple)(c, i, e); }
-  template <std::size_t I> static bool guard_thunk(Context& c, instance_type& i, const Event& e) { return std::get<I>(guard_tuple)(c, i, e); }
-  template <std::size_t I> static void timer_thunk(Context& c, instance_type& i, std::size_t id) { 
-      auto d = std::get<I>(timer_tuple)(i);
+  template <typename F>
+  static constexpr auto invoke(F&& f, Context& c, instance_type& i, const Event& e) -> decltype(auto) {
+      if constexpr (std::is_invocable_v<F, Context&, instance_type&, const Event&>) {
+          return f(c, i, e);
+      } else if constexpr (std::is_invocable_v<F, instance_type&, const Event&>) {
+          return f(i, e);
+      } else if constexpr (std::is_invocable_v<F, instance_type&>) {
+          return f(i);
+      } else if constexpr (std::is_invocable_v<F>) {
+          return f();
+      } else {
+          return f; 
+      }
+  }
+
+  template <std::size_t I> static void entry_thunk(Context& c, instance_type& i, const Event& e) { invoke(std::get<I>(entry_tuple), c, i, e); }
+  template <std::size_t I> static void exit_thunk(Context& c, instance_type& i, const Event& e) { invoke(std::get<I>(exit_tuple), c, i, e); }
+  template <std::size_t I> static void activity_thunk(Context& c, instance_type& i, const Event& e) { invoke(std::get<I>(activity_tuple), c, i, e); }
+  template <std::size_t I> static void effect_thunk(Context& c, instance_type& i, const Event& e) { invoke(std::get<I>(effect_tuple), c, i, e); }
+  template <std::size_t I> static bool guard_thunk(Context& c, instance_type& i, const Event& e) { return invoke(std::get<I>(guard_tuple), c, i, e); }
+  template <std::size_t I> static void timer_thunk(Context& c, instance_type& i, const Event& e, std::size_t id) { 
+      auto d = invoke(std::get<I>(timer_tuple), c, i, e);
       if constexpr (requires { i.schedule(id, d); }) i.schedule(id, d);
-      (void)c;
   }
 
   template <std::size_t... Is> static constexpr auto make_entry_table(std::index_sequence<Is...>) { return std::array<behavior_fn, sizeof...(Is)>{ &entry_thunk<Is>... }; }
@@ -253,20 +322,34 @@ struct compile {
   static constexpr auto guard_table = make_guard_table(std::make_index_sequence<std::tuple_size_v<decltype(guard_tuple)>>{});
   static constexpr auto timer_table = make_timer_table(std::make_index_sequence<std::tuple_size_v<decltype(timer_tuple)>>{});
 
-  constexpr compile() noexcept : current_state_id_(detail::invalid_index) {}
+  // 5. Data Members
+  TaskProvider task_provider_;
   
-  // Deferral queue
   static constexpr std::size_t max_deferred = 16;
-  std::array<std::size_t, max_deferred> deferred_queue_{};
-  std::size_t deferred_count_{0};
+  std::array<std::size_t, max_deferred> deferred_queue_;
+  std::size_t deferred_count_;
+  
+  std::array<std::optional<ActiveTask>, total_activity_count> active_tasks_;
+  std::array<Context, total_activity_count> activity_contexts_;
+  
+  std::size_t current_state_id_;
 
-  // Accessor
+  // 6. Constructor
+  constexpr compile(TaskProvider tp = {}) noexcept 
+    : task_provider_(std::move(tp)),
+      deferred_queue_{},
+      deferred_count_{0},
+      active_tasks_{},
+      activity_contexts_{},
+      current_state_id_(detail::invalid_index) {}
+
+  // 7. Accessor
   [[nodiscard]] constexpr std::string_view state() const noexcept {
     if (current_state_id_ == detail::invalid_index) return "";
     return normalized_model.get_state_name(current_state_id_);
   }
 
-  // Init/Start
+  // 8. Public Methods
   constexpr void start(instance_type& instance) {
       // Reset
       deferred_count_ = 0;
@@ -277,21 +360,13 @@ struct compile {
       Event e{"init"};
       enter_state(ctx, instance, e, 0);
       
-      // Follow initial transitions
-      // ... logic ...
-      // Initial transition execution needs to handle entry actions of targets
-      // and follow recursively.
       resolve_initial(ctx, instance, e, 0);
+      resolve_completion(ctx, instance);
   }
 
   constexpr void dispatch(instance_type& instance, std::string_view event_name) noexcept {
      Context ctx{};
      Event e{event_name};
-     
-     // 1. Check deferred
-     // We shouldn't dispatch deferred immediately here? 
-     // Deferral logic: if event is deferred in current state, queue it.
-     // Else, process it.
      
      std::size_t event_id = tables.get_event_id(event_name);
      if (event_id == detail::invalid_index) return;
@@ -306,21 +381,15 @@ struct compile {
      bool handled = dispatch_event_impl(ctx, instance, e, event_id);
      
      if (handled) {
-         // Process deferred events
          process_deferred(instance);
      }
   }
 
-  // Timer dispatch
   constexpr void handle_timer(instance_type& instance, std::size_t timer_idx) {
-      // Check if timer transition exists
       if (timer_idx < tables.timer_transition_map.size()) {
            std::size_t t_id = tables.timer_transition_map[timer_idx];
            if (t_id != detail::invalid_index) {
                const auto& t = normalized_model.transitions[t_id];
-               // Check if source state is active (or ancestor)
-               // Timers are local to state.
-               // Is current_state_id_ descendant of t.source_id?
                bool active = false;
                std::size_t curr = current_state_id_;
                while(curr != detail::invalid_index) {
@@ -330,7 +399,7 @@ struct compile {
                
                if (active) {
                    Context ctx{};
-                   Event e{""}; // Timer event has no name?
+                   Event e{""}; 
                    execute_transition(ctx, instance, e, t);
                }
            }
@@ -338,8 +407,6 @@ struct compile {
   }
 
  private:
-  std::size_t current_state_id_;
-
   constexpr bool is_deferred(std::size_t state, std::size_t event_id) const {
       std::string_view event_name = normalized_model.get_event_name(event_id);
       std::size_t curr = state;
@@ -347,32 +414,22 @@ struct compile {
           const auto& st = normalized_model.states[curr];
           for (std::size_t i = 0; i < st.defer_count; ++i) {
                std::size_t def_id = normalized_model.deferred_events[st.defer_start + i];
-               // Compare names instead of IDs to handle duplicates
                if (normalized_model.get_event_name(def_id) == event_name) return true;
           }
           curr = st.parent_id;
       }
       return false;
   }
+
   constexpr bool dispatch_event_impl(Context& ctx, instance_type& instance, const Event& e, std::size_t event_id) {
       if (current_state_id_ == detail::invalid_index) return false;
       
-      // Find transition
-      // Use tables.transition_table + next_candidate
       std::size_t curr = current_state_id_;
-      // Iterate hierarchy for event handling
-      // Optimization: tables.transition_table[curr][event_id] points to first match in hierarchy?
-      // No, it points to match in 'curr'. We iterate hierarchy manually if needed, OR tables logic handled it?
-      // My tables logic (lines 89-92 of tables.hpp) iterates hierarchy!
-      // So transition_table[curr][event_id] IS the first matching transition in the ancestry chain!
-      // So we just start there and follow next_candidate.
-      
       std::size_t t_id = tables.transition_table[curr][event_id];
       
       while (t_id != detail::invalid_index) {
           const auto& t = normalized_model.transitions[t_id];
           
-          // Check guard
           bool guard_passed = true;
           if (t.guard_idx != detail::invalid_index) {
                if (t.guard_idx < guard_table.size()) {
@@ -395,24 +452,20 @@ struct compile {
             std::size_t target = t.target_id;
             std::size_t old_state = current_state_id_;
             
-            // Exit to LCA
             exit_to_lca(ctx, instance, e, old_state, target);
             
-            // Effect
             if (t.effect_start != detail::invalid_index) {
                 for (std::size_t i = 0; i < t.effect_count; ++i) {
                     effect_table[t.effect_start + i](ctx, instance, e);
                 }
             }
             
-            // Enter from LCA
             enter_from_lca(ctx, instance, e, old_state, target);
             current_state_id_ = target;
             
-            // Initial transitions
             resolve_initial(ctx, instance, e, target);
+            resolve_completion(ctx, instance);
        } else {
-            // Internal transition
             if (t.effect_start != detail::invalid_index) {
                 for (std::size_t i = 0; i < t.effect_count; ++i) {
                     effect_table[t.effect_start + i](ctx, instance, e);
@@ -422,7 +475,6 @@ struct compile {
   }
 
   constexpr void exit_to_lca(Context& ctx, instance_type& instance, const Event& e, std::size_t source, std::size_t target) {
-      // Build paths
       std::array<std::size_t, 16> source_path;
       std::size_t source_len = 0;
       for (std::size_t s = source; s != detail::invalid_index; s = normalized_model.states[s].parent_id) {
@@ -435,7 +487,6 @@ struct compile {
           target_path[target_len++] = s;
       }
       
-      // Find LCA
       std::size_t lca = detail::invalid_index;
       int i = static_cast<int>(source_len) - 1;
       int j = static_cast<int>(target_len) - 1;
@@ -445,14 +496,12 @@ struct compile {
           j--;
       }
       
-      // Exit from source up to (but not including) LCA
       for (std::size_t s = source; s != lca && s != detail::invalid_index; s = normalized_model.states[s].parent_id) {
           exit_state(ctx, instance, e, s);
       }
   }
 
   constexpr void enter_from_lca(Context& ctx, instance_type& instance, const Event& e, std::size_t source, std::size_t target) {
-      // Build paths
       std::array<std::size_t, 16> source_path;
       std::size_t source_len = 0;
       for (std::size_t s = source; s != detail::invalid_index; s = normalized_model.states[s].parent_id) {
@@ -465,7 +514,6 @@ struct compile {
           target_path[target_len++] = s;
       }
       
-      // Find LCA
       int i = static_cast<int>(source_len) - 1;
       int j = static_cast<int>(target_len) - 1;
       while (i >= 0 && j >= 0 && source_path[static_cast<std::size_t>(i)] == target_path[static_cast<std::size_t>(j)]) {
@@ -473,7 +521,6 @@ struct compile {
           j--;
       }
       
-      // Enter from LCA down to target (reverse order)
       for (; j >= 0; j--) {
           enter_state(ctx, instance, e, target_path[static_cast<std::size_t>(j)]);
       }
@@ -481,15 +528,11 @@ struct compile {
 
   constexpr void exit_state(Context& ctx, instance_type& instance, const Event& e, std::size_t s_id) {
       const auto& s = normalized_model.states[s_id];
-      // Execute exit behaviors
       if (s.exit_start != detail::invalid_index) {
           for (std::size_t i = 0; i < s.exit_count; ++i) {
               exit_table[s.exit_start + i](ctx, instance, e);
           }
       }
-      // Cancel timers?
-      // "Cancel timers when leaving states".
-      // Use state_timer_ranges
       auto range = tables.state_timer_ranges[s_id];
       for(std::size_t i=0; i<range.count; ++i) {
           auto& timer = tables.state_timer_list[range.start + i];
@@ -497,33 +540,47 @@ struct compile {
               instance.cancel_timer(timer.timer_idx);
           }
       }
-      // Stop activity?
-      // If activity_idx valid.
-      // But activity table is just a function.
-      // Maybe just nothing?
+      if (s.activity_start != detail::invalid_index) {
+          for (std::size_t i = 0; i < s.activity_count; ++i) {
+             std::size_t idx = s.activity_start + i;
+             if (idx < active_tasks_.size() && active_tasks_[idx].has_value()) {
+                 active_tasks_[idx]->ctx->set();
+                 if (active_tasks_[idx]->task.joinable()) {
+                     active_tasks_[idx]->task.join();
+                 }
+                 active_tasks_[idx].reset();
+             }
+          }
+      }
   }
 
   constexpr void enter_state(Context& ctx, instance_type& instance, const Event& e, std::size_t s_id) {
       const auto& s = normalized_model.states[s_id];
-      // Execute entry behaviors
       if (s.entry_start != detail::invalid_index) {
           for (std::size_t i = 0; i < s.entry_count; ++i) {
               entry_table[s.entry_start + i](ctx, instance, e);
           }
       }
-      // Execute activity
       if (s.activity_start != detail::invalid_index) {
           for (std::size_t i = 0; i < s.activity_count; ++i) {
-              activity_table[s.activity_start + i](ctx, instance, e);
+              std::size_t idx = s.activity_start + i;
+              if (idx < active_tasks_.size()) {
+                  activity_contexts_[idx].reset();
+                  Context* activity_ctx = &activity_contexts_[idx];
+                  
+                  auto task = task_provider_.create_task([idx, &instance, e, activity_ctx]() {
+                      activity_table[idx](*activity_ctx, instance, e);
+                  }, "activity", 0, 0);
+                  
+                  active_tasks_[idx] = ActiveTask{std::move(task), activity_ctx};
+              }
           }
       }
-      // Start timers
       auto range = tables.state_timer_ranges[s_id];
       for(std::size_t i=0; i<range.count; ++i) {
           auto& timer = tables.state_timer_list[range.start + i];
-          // Lookup callable
           if (timer.timer_idx < timer_table.size()) {
-             timer_table[timer.timer_idx](ctx, instance, timer.timer_idx);
+             timer_table[timer.timer_idx](ctx, instance, e, timer.timer_idx);
           }
       }
   }
@@ -532,14 +589,12 @@ struct compile {
       std::size_t init = normalized_model.states[current].initial_transition_id;
       while (init != detail::invalid_index) {
           const auto& t = normalized_model.transitions[init];
-          // Execute effect
           if (t.effect_start != detail::invalid_index) {
               for (std::size_t i = 0; i < t.effect_count; ++i) {
                   effect_table[t.effect_start + i](ctx, instance, e);
               }
           }
           if (t.target_id != detail::invalid_index) {
-              // Enter from current to target (hierarchy aware)
               enter_from_lca(ctx, instance, e, current, t.target_id);
               current = t.target_id;
               current_state_id_ = current;
@@ -549,12 +604,34 @@ struct compile {
           }
       }
   }
+  
+  constexpr void resolve_completion(Context& ctx, instance_type& instance) {
+      if (current_state_id_ == detail::invalid_index) return;
+      
+      const auto& range = tables.completion_transitions_ranges[current_state_id_];
+      if (range.count == 0) return;
+      
+      for (std::size_t i = 0; i < range.count; ++i) {
+           std::size_t t_id = tables.completion_transitions_list[range.start + i];
+           const auto& t = normalized_model.transitions[t_id];
+           
+           bool guard_passed = true;
+           if (t.guard_idx != detail::invalid_index) {
+               if (t.guard_idx < guard_table.size()) {
+                   Event empty{""};
+                   guard_passed = guard_table[t.guard_idx](ctx, instance, empty);
+               }
+           }
+           
+           if (guard_passed) {
+               Event empty{""};
+               execute_transition(ctx, instance, empty, t);
+               return; 
+           }
+      }
+  }
+
   constexpr void process_deferred(instance_type& instance) {
-      // Re-dispatch deferred events
-      // Caution: infinite loop if event immediately defers again?
-      // We should consume queue and clear it, then dispatch?
-      // Or dispatch one by one?
-      // If we clear queue, then dispatch: if it defers, it goes to new queue.
       std::size_t count = deferred_count_;
       if (count == 0) return;
       
@@ -563,13 +640,11 @@ struct compile {
       
       for (std::size_t i = 0; i < count; ++i) {
           std::size_t evt_id = current_queue[i];
-          // If still deferred in new state, re-queue
           if (is_deferred(current_state_id_, evt_id)) {
               if (deferred_count_ < max_deferred) {
                   deferred_queue_[deferred_count_++] = evt_id;
               }
           } else {
-              // Dispatch
               std::string_view name = normalized_model.get_event_name(evt_id);
               dispatch(instance, name);
           }

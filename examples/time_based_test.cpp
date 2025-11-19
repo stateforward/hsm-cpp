@@ -17,7 +17,7 @@ int main() {
       // Transition from idle to active after 1 second
       hsm::transition(
           hsm::source("idle"), hsm::target("active"),
-          hsm::after<std::chrono::seconds, hsm::Instance>([](hsm::Instance& /*inst*/, hsm::Event& /*event*/) {
+          hsm::after<std::chrono::seconds, hsm::Instance>([](hsm::Context& /*ctx*/, hsm::Instance& /*inst*/, hsm::Event& /*event*/) {
             std::cout
                 << "After timer: transitioning from idle to active after 1s"
                 << std::endl;
@@ -27,7 +27,7 @@ int main() {
       // Transition from active to timeout after 2 seconds
       hsm::transition(
           hsm::source("active"), hsm::target("timeout"),
-          hsm::after<std::chrono::seconds, hsm::Instance>([](hsm::Instance& /*inst*/, hsm::Event& /*event*/) {
+          hsm::after<std::chrono::seconds, hsm::Instance>([](hsm::Context& /*ctx*/, hsm::Instance& /*inst*/, hsm::Event& /*event*/) {
             std::cout
                 << "After timer: transitioning from active to timeout after 2s"
                 << std::endl;
@@ -37,7 +37,7 @@ int main() {
       // Every 500ms while in active state, print a message
       hsm::transition(hsm::source("active"),
                       hsm::target("active"),  // Self-transition
-                      hsm::every<std::chrono::milliseconds, hsm::Instance>([](hsm::Instance& /*inst*/, hsm::Event& /*event*/) {
+                      hsm::every<std::chrono::milliseconds, hsm::Instance>([](hsm::Context& /*ctx*/, hsm::Instance& /*inst*/, hsm::Event& /*event*/) {
                         std::cout << "Every timer: still active (every 500ms)"
                                   << std::endl;
                         return 500ms;
@@ -46,9 +46,10 @@ int main() {
       hsm::initial(hsm::target("idle")));
 
   // Create HSM instance
-  hsm::HSM state_machine(*model);
+  hsm::Instance instance;
+  hsm::start(instance, model);
 
-  std::cout << "Initial state: " << state_machine.state() << std::endl;
+  std::cout << "Initial state: " << instance.state() << std::endl;
 
   // Let the state machine run for a few seconds to see the time-based
   // transitions
@@ -57,10 +58,11 @@ int main() {
 
   for (int i = 0; i < 50; ++i) {
     std::this_thread::sleep_for(100ms);
-    std::cout << "Current state: " << state_machine.state() << std::endl;
+    std::cout << "Current state: " << instance.state() << std::endl;
   }
 
-  std::cout << "Final state: " << state_machine.state() << std::endl;
+  std::cout << "Final state: " << instance.state() << std::endl;
+  hsm::stop(instance).wait();
   std::cout << "Time-based transition test completed!" << std::endl;
 
   return 0;

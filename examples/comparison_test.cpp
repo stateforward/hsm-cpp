@@ -48,8 +48,8 @@ class SimpleStateMachine {
   }
 };
 
-void noBehavior(hsm::HSM& /*sm*/, hsm::Event& /*event*/,
-                hsm::Context& /*signal*/) {
+void noBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
+                hsm::Event& /*event*/) {
   // Do nothing
 }
 
@@ -107,7 +107,8 @@ int main() {
                         hsm::target("idle"), hsm::effect(noBehavior)),
         hsm::initial(hsm::target("idle")));
 
-    hsm::HSM hsm_instance(model);
+    hsm::Instance instance;
+    hsm::start(instance, model);
 
     hsm::Event start_event("start");
     hsm::Event process_event("process");
@@ -116,9 +117,9 @@ int main() {
     auto start = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < iterations; ++i) {
-      hsm_instance.dispatch(start_event).wait();
-      hsm_instance.dispatch(process_event).wait();
-      hsm_instance.dispatch(finish_event).wait();
+      instance.dispatch(start_event).wait();
+      instance.dispatch(process_event).wait();
+      instance.dispatch(finish_event).wait();
     }
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -136,7 +137,8 @@ int main() {
                      total_transitions /
                      (static_cast<double>(duration.count()) / 1000000.0))
               << std::endl;
-    std::cout << "Final state: " << hsm_instance.state() << std::endl;
+    std::cout << "Final state: " << instance.state() << std::endl;
+    hsm::stop(instance).wait();
   }
 
   std::cout << "\n=== Memory Footprint Analysis ===" << std::endl;

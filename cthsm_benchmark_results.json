@@ -1,0 +1,53 @@
+{
+  "timestamp": "1763580784704740",
+  "results": [
+    {
+      "name": "1. Nested states (no entry/exit/activity)",
+      "transitionsPerSecond": 4.73373e+06,
+      "percentChange": 0,
+      "iterations": 10000
+    },
+    {
+      "name": "1.a With entry",
+      "transitionsPerSecond": 4.29923e+06,
+      "percentChange": -9.17885,
+      "iterations": 10000
+    },
+    {
+      "name": "1.b With entry+activity",
+      "transitionsPerSecond": 2.22198e+06,
+      "percentChange": -53.0608,
+      "iterations": 10000
+    },
+    {
+      "name": "1.c With entry+exit+activity",
+      "transitionsPerSecond": 1.22609e+06,
+      "percentChange": -74.0988,
+      "iterations": 10000
+    },
+    {
+      "name": "1.d With entry+exit+activity+effect",
+      "transitionsPerSecond": 2.09556e+06,
+      "percentChange": -55.7313,
+      "iterations": 10000
+    },
+    {
+      "name": "Deep nesting",
+      "transitionsPerSecond": 3.72162e+06,
+      "percentChange": 0,
+      "iterations": 10000
+    },
+    {
+      "name": "Cross hierarchy",
+      "transitionsPerSecond": 3.26797e+06,
+      "percentChange": 0,
+      "iterations": 10000
+    },
+    {
+      "name": "Invalid events",
+      "transitionsPerSecond": 1.59109e+07,
+      "percentChange": 0,
+      "iterations": 10000
+    }
+  ]
+}

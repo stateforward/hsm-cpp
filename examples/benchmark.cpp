@@ -37,14 +37,14 @@ size_t getCurrentMemoryUsage() {
 }
 
 // Simple no-op behavior function
-void noBehavior(hsm::HSM& /*sm*/, hsm::Event& /*event*/,
-                hsm::Context& /*signal*/) {
+void noBehavior(hsm::Context& /*signal*/, hsm::Instance& /*instance*/,
+                hsm::Event& /*event*/) {
   // Do nothing
 }
 
 // Activity function that runs in background
-void activityBehavior(hsm::HSM& /*sm*/, hsm::Event& /*event*/,
-                      hsm::Context& signal) {
+void activityBehavior(hsm::Context& signal, hsm::Instance& /*instance*/,
+                      hsm::Event& /*event*/) {
   // Simple activity that just checks the signal once
   // This avoids potential deadlocks in rapid transitions
   if (!signal.is_set()) {
@@ -71,7 +71,7 @@ BenchmarkResult runBenchmark(const std::string& scenarioName,
 
   // Create instance and start it with the model
   THSM instance;
-  hsm::HSM hsm_instance(instance, model);
+  hsm::start(instance, model);
 
   hsm::Event event1;
   event1.name = event1Name;
@@ -93,6 +93,11 @@ BenchmarkResult runBenchmark(const std::string& scenarioName,
   }
 
   auto end = std::chrono::high_resolution_clock::now();
+
+  // Stop and cleanup
+  hsm::stop(instance).wait();
+  // Intentionally leaking HSM instance as destructor is private and start() allocates it
+  instance.__hsm = nullptr;
 
   // Record peak memory usage
   result.peakMemoryBytes = getCurrentMemoryUsage();

@@ -79,7 +79,7 @@ void run_performance_test(const std::string& test_name, int num_events) {
 
   // Create HSM (this will build the optimization tables)
   auto start_build = std::chrono::high_resolution_clock::now();
-  HSM hsm(instance, *model);
+  hsm::start(instance, model);
   auto end_build = std::chrono::high_resolution_clock::now();
 
   auto build_time = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -105,7 +105,7 @@ void run_performance_test(const std::string& test_name, int num_events) {
 
   for (const auto& event_name : test_events) {
     Event event(event_name);
-    hsm.dispatch(std::move(event)).wait();
+    instance.dispatch(std::move(event)).wait();
     instance.event_count++;
   }
 
@@ -127,7 +127,8 @@ void run_performance_test(const std::string& test_name, int num_events) {
             << (static_cast<double>(num_events) * 1000000.0 /
                 static_cast<double>(process_time.count()))
             << std::endl;
-  std::cout << "Final state: " << hsm.state() << std::endl;
+  std::cout << "Final state: " << instance.state() << std::endl;
+  hsm::stop(instance).wait();
   std::cout << std::endl;
 }
 

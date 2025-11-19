@@ -25,9 +25,11 @@ int main() {
     
     // Create and start the state machine
     hsm::Instance instance;
-    hsm::HSM hsm(instance, model);
+    hsm::start(instance, model);
     
-    std::cout << "State machine started in state: " << hsm.state() << std::endl;
+    std::cout << "State machine started in state: " << instance.state() << std::endl;
+    
+    hsm::stop(instance).wait();
     
     return 0;
 }

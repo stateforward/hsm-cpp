@@ -39,7 +39,7 @@ int main() {
     // Create model and HSM instance
     auto model = createLightModel();
     LightHSM instance;
-    hsm::HSM hsm_instance(instance, model);
+    hsm::start(instance, model);
 
     // Create events
     hsm::Event on_event;
@@ -86,6 +86,8 @@ int main() {
               << bytesPerOp << std::endl;
     std::cout << "Time per transition: " << std::fixed << std::setprecision(1) 
               << timePerTransitionNs << " ns" << std::endl;
+
+    hsm::stop(instance).wait();
 
     return 0;
 }

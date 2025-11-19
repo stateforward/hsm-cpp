@@ -34,14 +34,14 @@ long getCurrentMemoryUsage() {
 }
 
 // Simple no-op behavior function
-void noBehavior(hsm::HSM& /*sm*/, hsm::Event& /*event*/,
-                hsm::Context& /*signal*/) {
+void noBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
+                hsm::Event& /*event*/) {
   // Do nothing
 }
 
 // More complex behavior for testing
-void complexBehavior(hsm::HSM& /*sm*/, hsm::Event& /*event*/,
-                     hsm::Context& /*signal*/) {
+void complexBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
+                     hsm::Event& /*event*/) {
   // Simulate some work
   volatile int sum = 0;
   for (int i = 0; i < 100; ++i) {
@@ -102,7 +102,7 @@ int main() {
 
     // Create HSM instance
     TestInstance instance;
-    hsm::HSM hsm_instance(instance, model);
+    hsm::start(instance, model);
 
     long mem_after_hsm = getCurrentMemoryUsage();
     std::cout << "Memory after HSM creation: " << mem_after_hsm << " KB"
@@ -119,9 +119,9 @@ int main() {
     auto start_bench = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < iterations; ++i) {
-      hsm_instance.dispatch(start_event).wait();
-      hsm_instance.dispatch(process_event).wait();
-      hsm_instance.dispatch(finish_event).wait();
+      instance.dispatch(start_event).wait();
+      instance.dispatch(process_event).wait();
+      instance.dispatch(finish_event).wait();
       instance.transition_count += 3;
     }
 
@@ -151,7 +151,7 @@ int main() {
               << static_cast<int>(transitions_per_second) << std::endl;
     std::cout << "Microseconds per transition: " << microseconds_per_transition
               << " μs" << std::endl;
-    std::cout << "Final state: " << hsm_instance.state() << std::endl;
+    std::cout << "Final state: " << instance.state() << std::endl;
 
     // Memory efficiency
     if (mem_after_bench > 0 && total_transitions > 0) {

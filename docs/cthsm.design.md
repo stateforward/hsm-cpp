@@ -46,7 +46,46 @@
   * Non‑literal event names can be supported via a slower fallback path or left unsupported, as long as this is documented.
 
 * **No requirement to mirror all threading policies**
-  * `hsm` has `TaskProvider` and threaded activities; `cthsm` may initially support a subset or provide a simpler policy‑based extension point for concurrency.
+  * `hsm` has `TaskProvider` and threaded activities; `cthsm` may initially support a subset or provide a simpler policy-based extension point for concurrency.
+
+## Benchmark Results
+
+### Performance Comparison
+
+The following benchmarks compare `cthsm` (compile-time) against `hsm` (runtime) on a MacBook Pro (Apple Silicon).
+
+| Scenario | `hsm` (trans/sec) | `cthsm` (trans/sec) | Speedup |
+|----------|------------------:|--------------------:|--------:|
+| **Baseline** (Nested states, no behaviors) | 328,299 | 4,733,728 | **14.4x** |
+| **1.a** (With entry behaviors) | 304,136 | 4,299,226 | **14.1x** |
+| **1.b** (Entry + Activity*) | 35,535 | 2,221,975 | **62.5x** |
+| **1.c** (Entry + Exit + Activity*) | 32,815 | 1,226,091 | **37.4x** |
+| **1.d** (Full: Entry/Exit/Activity/Effect) | 35,826 | 2,095,557 | **58.5x** |
+
+*\*Note on Activities: `hsm` spawns a `std::thread` for each activity, incurring significant overhead. `cthsm` invokes the activity callable synchronously/inline. Users requiring concurrency in `cthsm` must offload work to a scheduler manually or via a custom adapter.*
+
+### Binary Size Comparison
+
+Comparison of benchmark executables compiled with `-O3` (or equivalent default release settings):
+
+| Artifact | Size (Bytes) | Size (MB) | Reduction |
+|----------|-------------:|----------:|----------:|
+| `hsm` benchmark | 1,822,120 | 1.74 MB | - |
+| `cthsm` benchmark | 1,599,728 | 1.53 MB | **~12%** |
+
+`cthsm` achieves a modest reduction in binary size despite heavy template usage, likely due to the removal of `std::function`, `std::any`, `std::string`, and `std::unordered_map` overheads from the hot path.
+
+### Test Parity Status
+
+All core features have been ported and verified with equivalent behavior (modulo intended API differences):
+
+* [x] **Transitions**: Internal, External, Self, Local, Initial.
+* [x] **Guards & Effects**: Full support.
+* [x] **Behaviors**: Entry, Exit, Activities (synchronous).
+* [x] **Pseudostates**: Initial, Choice, Final.
+* [x] **Path Resolution**: Absolute, Relative (limited), Ancestor lookups.
+* [x] **Deferral**: Event deferral and re-dispatch.
+* [x] **Timers**: `after` and `every` (simulated/synchronous).
 
 ***
 

@@ -41,6 +41,12 @@ struct lookup_tables {
   std::array<range, StateCount> state_timer_ranges{};
   std::array<timer_ref, TimerCount> state_timer_list{};
   
+  // Completion transitions (eventless, non-timer)
+  // Map state_id -> {start, count} in completion_transitions_list
+  std::array<range, StateCount> completion_transitions_ranges{};
+  // Indices into normalized_model.transitions
+  std::array<std::size_t, TransitionCount> completion_transitions_list{};
+  
   constexpr std::size_t get_event_id(std::string_view name) const {
       // Binary search
       auto it = std::lower_bound(sorted_events.begin(), sorted_events.end(), name, 
@@ -122,8 +128,7 @@ consteval auto build_tables(const ModelData& data) {
         for (std::size_t s = 0; s < SC; ++s) {
             std::size_t start = current_list_idx;
             
-            // Scan transitions for this state (only direct transitions, timers don't inherit?)
-            // Timers are local to state.
+            // Scan transitions for this state
             for (std::size_t t = 0; t < TC; ++t) {
                 const auto& trans = data.transitions[t];
                 if (trans.source_id == s && trans.timer_type != timer_kind::none) {
@@ -132,6 +137,32 @@ consteval auto build_tables(const ModelData& data) {
                 }
             }
             tables.state_timer_ranges[s] = { start, current_list_idx - start };
+        }
+    }
+
+    // 4. Build Completion/Choice Transition Tables
+    {
+        std::size_t current_list_idx = 0;
+        for (std::size_t s = 0; s < SC; ++s) {
+            std::size_t start = current_list_idx;
+            
+            for (std::size_t t = 0; t < TC; ++t) {
+                const auto& trans = data.transitions[t];
+                if (trans.source_id == s && 
+                    trans.event_id == invalid_index && 
+                    trans.timer_type == timer_kind::none &&
+                    trans.kind != transition_kind::local) { // Exclude initial transitions if they are marked local?
+                    // Initial transitions are usually stored in initial_transition_id, 
+                    // but they might appear in the transition list too?
+                    // In normalize.hpp, collect_transitions for initial() sets initial_transition_id.
+                    // But collect_transitions also adds them to the transitions array.
+                    // initial() transitions have kind=local.
+                    // Choice transitions have kind=external (default).
+                    
+                    tables.completion_transitions_list[current_list_idx++] = t;
+                }
+            }
+            tables.completion_transitions_ranges[s] = { start, current_list_idx - start };
         }
     }
     

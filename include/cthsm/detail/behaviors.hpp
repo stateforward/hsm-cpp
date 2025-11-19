@@ -217,6 +217,12 @@ template <typename... Partials>
 constexpr auto extract_effects(const transition_expr<Partials...>& node) {
     return extract_effects_from_transition_tuple(node.elements);
 }
+
+template <typename... Actions>
+constexpr auto extract_effects(const effect_expr<Actions...>& node) {
+    return to_std_tuple(node.actions);
+}
+
 template <typename... Partials>
 constexpr auto extract_effects(const initial_expr<Partials...>& node) {
     return extract_effects_tuple(node.elements);

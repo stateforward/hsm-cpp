@@ -17,18 +17,18 @@ class VerificationInstance : public hsm::Instance {
 };
 
 // Behavior functions that count calls
-void countingEntryBehavior(hsm::Instance& /*instance*/, hsm::Event& /*event*/,
-                           hsm::Context& /*signal*/) {
+void countingEntryBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
+                           hsm::Event& /*event*/) {
   entry_calls.fetch_add(1, std::memory_order_relaxed);
 }
 
-void countingExitBehavior(hsm::Instance& /*instance*/, hsm::Event& /*event*/,
-                          hsm::Context& /*signal*/) {
+void countingExitBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
+                          hsm::Event& /*event*/) {
   exit_calls.fetch_add(1, std::memory_order_relaxed);
 }
 
-void countingActivityBehavior(hsm::Instance& /*instance*/,
-                              hsm::Event& /*event*/, hsm::Context& signal) {
+void countingActivityBehavior(hsm::Context& signal, hsm::Instance& /*instance*/,
+                              hsm::Event& /*event*/) {
   activity_calls.fetch_add(1, std::memory_order_relaxed);
   // This is what's causing the massive overhead - it runs in a separate thread
   if (!signal.is_set()) {
@@ -36,13 +36,13 @@ void countingActivityBehavior(hsm::Instance& /*instance*/,
   }
 }
 
-void countingEffectBehavior(hsm::Instance& /*instance*/, hsm::Event& /*event*/,
-                            hsm::Context& /*signal*/) {
+void countingEffectBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
+                            hsm::Event& /*event*/) {
   effect_calls.fetch_add(1, std::memory_order_relaxed);
 }
 
-void noBehavior(hsm::Instance& /*instance*/, hsm::Event& /*event*/,
-                hsm::Context& /*signal*/) {
+void noBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
+                hsm::Event& /*event*/) {
   // Do nothing
 }
 
@@ -68,7 +68,7 @@ BenchmarkResult runVerificationBenchmark(
   effect_calls.store(0);
 
   VerificationInstance instance;
-  hsm::HSM hsm_instance(instance, model);
+  hsm::start(instance, model);
 
   hsm::Event event1;
   event1.name = event1Name;
@@ -132,6 +132,8 @@ BenchmarkResult runVerificationBenchmark(
             << " (warmup: " << warmup_effects << ")" << std::endl;
   std::cout << "  Estimated thread creations: " << result.threadCreations
             << std::endl;
+
+  hsm::stop(instance).wait();
 
   return result;
 }
