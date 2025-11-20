@@ -17,6 +17,9 @@
 #include "cthsm/detail/structural_tuple.hpp"
 #include "cthsm/detail/tables.hpp"
 
+#include <iostream>
+#include <typeinfo>
+
 namespace cthsm {
 
 struct Context {
@@ -65,9 +68,121 @@ struct SequentialTaskProvider {
   }
 };
 
-struct Event {
-  constexpr Event() noexcept = default;
-  constexpr explicit Event(std::string_view name) noexcept : name_(name) {}
+namespace detail {
+
+template <typename T>
+consteval std::string_view type_name() {
+#if defined(__clang__)
+    std::string_view name = __PRETTY_FUNCTION__;
+    auto start = name.find("[T = ");
+    if (start == std::string_view::npos) return "UNKNOWN";
+    start += 5;
+    auto end = name.find_last_of(']');
+    return name.substr(start, end - start);
+#elif defined(__GNUC__)
+    std::string_view name = __PRETTY_FUNCTION__;
+    auto start = name.find("[with T = ");
+    if (start == std::string_view::npos) {
+         start = name.find("[T = ");
+         if (start == std::string_view::npos) return "UNKNOWN";
+         start += 5;
+    } else {
+         start += 10;
+    }
+    auto end = name.find_last_of(']');
+    return name.substr(start, end - start);
+#else
+    return "UNKNOWN";
+#endif
+}
+
+// Traits for extracting event type from handler
+template <typename T>
+struct extract_event_type { using type = void; };
+
+template <typename Tuple> struct get_event_from_args { using type = void; };
+
+template <typename A, typename B, typename C>
+struct get_event_from_args<std::tuple<A, B, C>> { using type = std::decay_t<C>; };
+template <typename A, typename B>
+struct get_event_from_args<std::tuple<A, B>> { using type = std::decay_t<B>; };
+
+template <typename L>
+requires requires { &L::operator(); }
+struct extract_event_type<L> : extract_event_type<decltype(&L::operator())> {};
+
+template <typename R, typename C, typename... Args>
+struct extract_event_type<R(C::*)(Args...) const> {
+    using type = typename get_event_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename C, typename... Args>
+struct extract_event_type<R(C::*)(Args...) const noexcept> {
+    using type = typename get_event_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename C, typename... Args>
+struct extract_event_type<R(C::*)(Args...)> {
+    using type = typename get_event_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename C, typename... Args>
+struct extract_event_type<R(C::*)(Args...) noexcept> {
+    using type = typename get_event_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename... Args>
+struct extract_event_type<R(*)(Args...)> {
+    using type = typename get_event_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename... Args>
+struct extract_event_type<R(*)(Args...) noexcept> {
+    using type = typename get_event_from_args<std::tuple<Args...>>::type;
+};
+
+// Traits for extracting instance type from handler
+template <typename T>
+struct extract_instance_type { using type = void; };
+
+template <typename Tuple> struct get_instance_from_args { using type = void; };
+
+template <typename A, typename B, typename C>
+struct get_instance_from_args<std::tuple<A, B, C>> { using type = std::decay_t<B>; };
+template <typename A, typename B>
+struct get_instance_from_args<std::tuple<A, B>> { using type = std::decay_t<A>; };
+template <typename A>
+struct get_instance_from_args<std::tuple<A>> { using type = std::decay_t<A>; };
+
+template <typename L>
+requires requires { &L::operator(); }
+struct extract_instance_type<L> : extract_instance_type<decltype(&L::operator())> {};
+
+template <typename R, typename C, typename... Args>
+struct extract_instance_type<R(C::*)(Args...) const> {
+    using type = typename get_instance_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename C, typename... Args>
+struct extract_instance_type<R(C::*)(Args...) const noexcept> {
+    using type = typename get_instance_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename C, typename... Args>
+struct extract_instance_type<R(C::*)(Args...)> {
+    using type = typename get_instance_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename C, typename... Args>
+struct extract_instance_type<R(C::*)(Args...) noexcept> {
+    using type = typename get_instance_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename... Args>
+struct extract_instance_type<R(*)(Args...)> {
+    using type = typename get_instance_from_args<std::tuple<Args...>>::type;
+};
+template <typename R, typename... Args>
+struct extract_instance_type<R(*)(Args...) noexcept> {
+    using type = typename get_instance_from_args<std::tuple<Args...>>::type;
+};
+
+}  // namespace detail
+
+struct AnyEvent {
+  constexpr AnyEvent() noexcept = default;
+  constexpr explicit AnyEvent(std::string_view name) noexcept : name_(name) {}
 
   [[nodiscard]] constexpr std::string_view name() const noexcept {
     return name_;
@@ -75,6 +190,12 @@ struct Event {
 
  private:
   std::string_view name_{};
+};
+
+template <typename T>
+struct Event : AnyEvent {
+    static constexpr std::string_view name_v = detail::type_name<T>();
+    constexpr Event() : AnyEvent(name_v) {}
 };
 
 struct Instance {
@@ -85,6 +206,7 @@ struct Instance {
   Instance& operator=(Instance&&) = delete;
   virtual ~Instance() = default;
 };
+
 
 namespace detail {
 
@@ -184,6 +306,15 @@ template <typename Name>
   return detail::on_expr<event_type>{event_type{name}};
 }
 
+template <typename T>
+[[nodiscard]] constexpr auto on() {
+    struct TypedName {
+        [[nodiscard]] constexpr std::string_view view() const { return detail::type_name<T>(); }
+        [[nodiscard]] constexpr std::size_t size() const { return detail::type_name<T>().size(); }
+    };
+    return detail::on_expr<TypedName>{TypedName{}};
+}
+
 template <std::size_t N>
 [[nodiscard]] constexpr auto on(const char (&event)[N]) {
   return on(detail::make_fixed_string(event));
@@ -279,31 +410,81 @@ struct compile {
   };
 
   // 4. Thunk Types & Functions
-  using behavior_fn = void (*)(Context&, instance_type&, const Event&);
-  using guard_fn = bool (*)(Context&, instance_type&, const Event&);
-  using timer_fn = void (*)(Context&, instance_type&, const Event&, std::size_t); 
+  using behavior_fn = void (*)(Context&, instance_type&, const AnyEvent&);
+  using guard_fn = bool (*)(Context&, instance_type&, const AnyEvent&);
+  using timer_fn = void (*)(Context&, instance_type&, const AnyEvent&, std::size_t); 
 
   template <typename F>
-  static constexpr auto invoke(F&& f, Context& c, instance_type& i, const Event& e) -> decltype(auto) {
-      if constexpr (std::is_invocable_v<F, Context&, instance_type&, const Event&>) {
-          return f(c, i, e);
-      } else if constexpr (std::is_invocable_v<F, instance_type&, const Event&>) {
-          return f(i, e);
-      } else if constexpr (std::is_invocable_v<F, instance_type&>) {
-          return f(i);
+  static constexpr auto invoke(F&& f, Context& c, instance_type& i, const AnyEvent& e) -> decltype(auto) {
+      using TargetInst = typename detail::extract_instance_type<std::decay_t<F>>::type;
+      /*
+      std::cout << "Invoke: " << e.name() 
+                << " TargetInst: " << (std::is_void_v<TargetInst> ? "void" : detail::type_name<TargetInst>())
+                << " Instance: " << detail::type_name<instance_type>()
+                << " Addr: " << &i;
+      
+      using ArgType = typename detail::extract_event_type<std::decay_t<F>>::type;
+      if constexpr (!std::is_void_v<ArgType>) {
+           std::cout << " ArgType: " << detail::type_name<ArgType>();
+      }
+      std::cout << std::endl;
+      */
+
+      using EffInst = std::conditional_t<
+          !std::is_void_v<TargetInst>,
+          TargetInst,
+          instance_type
+      >;
+      auto& eff_i = static_cast<EffInst&>(i);
+
+      if constexpr (std::is_invocable_v<F, Context&, EffInst&, const AnyEvent&>) {
+          // std::cout << "Calling untyped handler" << std::endl;
+          return f(c, eff_i, e);
+      } else if constexpr (std::is_invocable_v<F, EffInst&, const AnyEvent&>) {
+          return f(eff_i, e);
+      } else if constexpr (std::is_invocable_v<F, EffInst&>) {
+          return f(eff_i);
       } else if constexpr (std::is_invocable_v<F>) {
           return f();
       } else {
-          return f; 
+          // Typed event check
+          using ArgType = typename detail::extract_event_type<std::decay_t<F>>::type;
+          if constexpr (!std::is_void_v<ArgType> && !std::is_same_v<ArgType, AnyEvent>) {
+               if (e.name() == detail::type_name<ArgType>()) {
+                   // We need to support (Context, Instance, Typed) and (Instance, Typed)
+                   if constexpr (std::is_invocable_v<F, Context&, EffInst&, const ArgType&>) {
+                       return f(c, eff_i, static_cast<const ArgType&>(e));
+                   } else if constexpr (std::is_invocable_v<F, EffInst&, const ArgType&>) {
+                       return f(eff_i, static_cast<const ArgType&>(e));
+                   }
+               }
+               // Mismatch path
+               if constexpr (std::is_invocable_v<F, Context&, EffInst&, const ArgType&>) {
+                   using R = std::invoke_result_t<F, Context&, EffInst&, const ArgType&>;
+                   if constexpr (std::is_same_v<R, bool>) return false;
+                   else return;
+               } else if constexpr (std::is_invocable_v<F, EffInst&, const ArgType&>) {
+                   using R = std::invoke_result_t<F, EffInst&, const ArgType&>;
+                   if constexpr (std::is_same_v<R, bool>) return false;
+                   else return;
+               } else {
+                   return; // Fallback
+               }
+          } else {
+              if constexpr (std::is_invocable_v<F, Context&, EffInst&, const AnyEvent&>) {
+                  return f(c, eff_i, e);
+              }
+              return f; 
+          }
       }
   }
 
-  template <std::size_t I> static void entry_thunk(Context& c, instance_type& i, const Event& e) { invoke(std::get<I>(entry_tuple), c, i, e); }
-  template <std::size_t I> static void exit_thunk(Context& c, instance_type& i, const Event& e) { invoke(std::get<I>(exit_tuple), c, i, e); }
-  template <std::size_t I> static void activity_thunk(Context& c, instance_type& i, const Event& e) { invoke(std::get<I>(activity_tuple), c, i, e); }
-  template <std::size_t I> static void effect_thunk(Context& c, instance_type& i, const Event& e) { invoke(std::get<I>(effect_tuple), c, i, e); }
-  template <std::size_t I> static bool guard_thunk(Context& c, instance_type& i, const Event& e) { return invoke(std::get<I>(guard_tuple), c, i, e); }
-  template <std::size_t I> static void timer_thunk(Context& c, instance_type& i, const Event& e, std::size_t id) { 
+  template <std::size_t I> static void entry_thunk(Context& c, instance_type& i, const AnyEvent& e) { invoke(std::get<I>(entry_tuple), c, i, e); }
+  template <std::size_t I> static void exit_thunk(Context& c, instance_type& i, const AnyEvent& e) { invoke(std::get<I>(exit_tuple), c, i, e); }
+  template <std::size_t I> static void activity_thunk(Context& c, instance_type& i, const AnyEvent& e) { invoke(std::get<I>(activity_tuple), c, i, e); }
+  template <std::size_t I> static void effect_thunk(Context& c, instance_type& i, const AnyEvent& e) { invoke(std::get<I>(effect_tuple), c, i, e); }
+  template <std::size_t I> static bool guard_thunk(Context& c, instance_type& i, const AnyEvent& e) { return invoke(std::get<I>(guard_tuple), c, i, e); }
+  template <std::size_t I> static void timer_thunk(Context& c, instance_type& i, const AnyEvent& e, std::size_t id) { 
       auto d = invoke(std::get<I>(timer_tuple), c, i, e);
       if constexpr (requires { i.schedule(id, d); }) i.schedule(id, d);
   }
@@ -357,7 +538,7 @@ struct compile {
       
       // Enter root
       Context ctx{};
-      Event e{"init"};
+      AnyEvent e{"init"};
       enter_state(ctx, instance, e, 0);
       
       resolve_initial(ctx, instance, e, 0);
@@ -365,9 +546,27 @@ struct compile {
   }
 
   constexpr void dispatch(instance_type& instance, std::string_view event_name) noexcept {
-     Context ctx{};
-     Event e{event_name};
+     AnyEvent e{event_name};
      
+     dispatch_internal(instance, e, event_name);
+  }
+
+  template <typename T>
+  constexpr void dispatch(instance_type& instance) noexcept {
+      static_assert(std::is_base_of_v<AnyEvent, T> || std::is_base_of_v<Event<T>, T>, "Must be an Event");
+      T e{};
+      dispatch_internal(instance, e, e.name());
+  }
+
+  template <typename T>
+  constexpr void dispatch(instance_type& instance, const T& e) noexcept {
+      static_assert(std::is_base_of_v<AnyEvent, T>, "Must be an Event");
+      dispatch_internal(instance, e, e.name());
+  }
+
+ private:
+  constexpr void dispatch_internal(instance_type& instance, const AnyEvent& e, std::string_view event_name) {
+     Context ctx{};
      std::size_t event_id = tables.get_event_id(event_name);
      if (event_id == detail::invalid_index) return;
 
@@ -385,6 +584,7 @@ struct compile {
      }
   }
 
+ public:
   constexpr void handle_timer(instance_type& instance, std::size_t timer_idx) {
       if (timer_idx < tables.timer_transition_map.size()) {
            std::size_t t_id = tables.timer_transition_map[timer_idx];
@@ -399,7 +599,7 @@ struct compile {
                
                if (active) {
                    Context ctx{};
-                   Event e{""}; 
+                   AnyEvent e{""}; 
                    execute_transition(ctx, instance, e, t);
                }
            }
@@ -421,7 +621,7 @@ struct compile {
       return false;
   }
 
-  constexpr bool dispatch_event_impl(Context& ctx, instance_type& instance, const Event& e, std::size_t event_id) {
+  constexpr bool dispatch_event_impl(Context& ctx, instance_type& instance, const AnyEvent& e, std::size_t event_id) {
       if (current_state_id_ == detail::invalid_index) return false;
       
       std::size_t curr = current_state_id_;
@@ -447,12 +647,12 @@ struct compile {
       return false;
   }
 
-  constexpr void execute_transition(Context& ctx, instance_type& instance, const Event& e, const auto& t) {
+  constexpr void execute_transition(Context& ctx, instance_type& instance, const AnyEvent& e, const auto& t) {
        if (t.target_id != detail::invalid_index) {
             std::size_t target = t.target_id;
             std::size_t old_state = current_state_id_;
             
-            exit_to_lca(ctx, instance, e, old_state, target);
+            exit_to_lca(ctx, instance, e, old_state, target, t.kind);
             
             if (t.effect_start != detail::invalid_index) {
                 for (std::size_t i = 0; i < t.effect_count; ++i) {
@@ -460,7 +660,7 @@ struct compile {
                 }
             }
             
-            enter_from_lca(ctx, instance, e, old_state, target);
+            enter_from_lca(ctx, instance, e, old_state, target, t.kind);
             current_state_id_ = target;
             
             resolve_initial(ctx, instance, e, target);
@@ -474,7 +674,7 @@ struct compile {
        }
   }
 
-  constexpr void exit_to_lca(Context& ctx, instance_type& instance, const Event& e, std::size_t source, std::size_t target) {
+  constexpr void exit_to_lca(Context& ctx, instance_type& instance, const AnyEvent& e, std::size_t source, std::size_t target, detail::transition_kind kind = detail::transition_kind::external) {
       std::array<std::size_t, 16> source_path;
       std::size_t source_len = 0;
       for (std::size_t s = source; s != detail::invalid_index; s = normalized_model.states[s].parent_id) {
@@ -495,13 +695,23 @@ struct compile {
           i--;
           j--;
       }
+
+      if (kind == detail::transition_kind::external && source == target) {
+          // External self-transition: LCA is parent
+          if (normalized_model.states[source].parent_id != detail::invalid_index) {
+              lca = normalized_model.states[source].parent_id;
+          } else {
+              // Root self-transition? LCA is invalid_index effectively (exit all)
+              lca = detail::invalid_index; 
+          }
+      }
       
       for (std::size_t s = source; s != lca && s != detail::invalid_index; s = normalized_model.states[s].parent_id) {
           exit_state(ctx, instance, e, s);
       }
   }
 
-  constexpr void enter_from_lca(Context& ctx, instance_type& instance, const Event& e, std::size_t source, std::size_t target) {
+  constexpr void enter_from_lca(Context& ctx, instance_type& instance, const AnyEvent& e, std::size_t source, std::size_t target, detail::transition_kind kind = detail::transition_kind::external) {
       std::array<std::size_t, 16> source_path;
       std::size_t source_len = 0;
       for (std::size_t s = source; s != detail::invalid_index; s = normalized_model.states[s].parent_id) {
@@ -520,13 +730,28 @@ struct compile {
           i--;
           j--;
       }
+
+      if (kind == detail::transition_kind::external && source == target) {
+          // Reset i, j to parent level (force entry from parent down)
+          // source == target, so paths are same. i and j ended at -1 (if fully matched).
+          // We want to enter starting from source (which is target).
+          // target_path[0] is target.
+          // We want j to start at 0.
+          // If we just force logic, we can recalculate j.
+          // The loop decremented j until it didn't match or exhausted.
+          // If source == target, it exhausted (-1).
+          // We want to enter target. So we need loop `for (; j >= 0; j--)` to run for j=0.
+          // So set j = 0?
+          // Yes, target is at index 0.
+          j = 0;
+      }
       
       for (; j >= 0; j--) {
           enter_state(ctx, instance, e, target_path[static_cast<std::size_t>(j)]);
       }
   }
 
-  constexpr void exit_state(Context& ctx, instance_type& instance, const Event& e, std::size_t s_id) {
+  constexpr void exit_state(Context& ctx, instance_type& instance, const AnyEvent& e, std::size_t s_id) {
       const auto& s = normalized_model.states[s_id];
       if (s.exit_start != detail::invalid_index) {
           for (std::size_t i = 0; i < s.exit_count; ++i) {
@@ -554,7 +779,7 @@ struct compile {
       }
   }
 
-  constexpr void enter_state(Context& ctx, instance_type& instance, const Event& e, std::size_t s_id) {
+  constexpr void enter_state(Context& ctx, instance_type& instance, const AnyEvent& e, std::size_t s_id) {
       const auto& s = normalized_model.states[s_id];
       if (s.entry_start != detail::invalid_index) {
           for (std::size_t i = 0; i < s.entry_count; ++i) {
@@ -585,7 +810,7 @@ struct compile {
       }
   }
 
-  constexpr void resolve_initial(Context& ctx, instance_type& instance, const Event& e, std::size_t current) {
+  constexpr void resolve_initial(Context& ctx, instance_type& instance, const AnyEvent& e, std::size_t current) {
       std::size_t init = normalized_model.states[current].initial_transition_id;
       while (init != detail::invalid_index) {
           const auto& t = normalized_model.transitions[init];
@@ -595,7 +820,7 @@ struct compile {
               }
           }
           if (t.target_id != detail::invalid_index) {
-              enter_from_lca(ctx, instance, e, current, t.target_id);
+              enter_from_lca(ctx, instance, e, current, t.target_id, detail::transition_kind::local);
               current = t.target_id;
               current_state_id_ = current;
               init = normalized_model.states[current].initial_transition_id;
@@ -618,13 +843,13 @@ struct compile {
            bool guard_passed = true;
            if (t.guard_idx != detail::invalid_index) {
                if (t.guard_idx < guard_table.size()) {
-                   Event empty{""};
+                   AnyEvent empty{""};
                    guard_passed = guard_table[t.guard_idx](ctx, instance, empty);
                }
            }
            
            if (guard_passed) {
-               Event empty{""};
+               AnyEvent empty{""};
                execute_transition(ctx, instance, empty, t);
                return; 
            }

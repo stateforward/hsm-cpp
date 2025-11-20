@@ -2,9 +2,8 @@
 #include <iostream>
 #include <string>
 
-#include "hsm.hpp"
-
 #include "cthsm/cthsm.hpp"
+#include "hsm.hpp"
 
 // Noop behaviors for fair comparison
 void noopEntry() {}
@@ -23,7 +22,7 @@ class SimpleStateMachine {
     switch (current_state) {
       case SimpleState::Idle:
         if (event == "start") {
-          noopExit();  // Exit idle
+          noopExit();    // Exit idle
           noopEffect();  // Transition effect
           current_state = SimpleState::Active;
           noopEntry();  // Enter active
@@ -32,7 +31,7 @@ class SimpleStateMachine {
         break;
       case SimpleState::Active:
         if (event == "process") {
-          noopExit();  // Exit active
+          noopExit();    // Exit active
           noopEffect();  // Transition effect
           current_state = SimpleState::Processing;
           noopEntry();  // Enter processing
@@ -41,7 +40,7 @@ class SimpleStateMachine {
         break;
       case SimpleState::Processing:
         if (event == "finish") {
-          noopExit();  // Exit processing
+          noopExit();    // Exit processing
           noopEffect();  // Transition effect
           current_state = SimpleState::Idle;
           noopEntry();  // Enter idle
@@ -70,7 +69,7 @@ void noBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
 }
 
 // Behaviors for CTHSM
-void cthsmBehavior(cthsm::Context&, cthsm::Instance&, const cthsm::Event&) {}
+void cthsmBehavior(cthsm::Context&, cthsm::Instance&, const cthsm::AnyEvent&) {}
 
 int main() {
   const int iterations = 100000;
@@ -170,7 +169,8 @@ int main() {
         state("idle", entry(cthsmBehavior), exit(cthsmBehavior),
               transition(on("start"), target("active"), effect(cthsmBehavior))),
         state("active", entry(cthsmBehavior), exit(cthsmBehavior),
-              transition(on("process"), target("processing"), effect(cthsmBehavior))),
+              transition(on("process"), target("processing"),
+                         effect(cthsmBehavior))),
         state("processing", entry(cthsmBehavior), exit(cthsmBehavior),
               transition(on("finish"), target("idle"), effect(cthsmBehavior))),
         initial(target("idle")));
@@ -182,9 +182,9 @@ int main() {
     auto start = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < iterations; ++i) {
-      sm.dispatch(instance, "start");
-      sm.dispatch(instance, "process");
-      sm.dispatch(instance, "finish");
+      sm.dispatch(instance, cthsm::AnyEvent{"start"});
+      sm.dispatch(instance, cthsm::AnyEvent{"process"});
+      sm.dispatch(instance, cthsm::AnyEvent{"finish"});
     }
 
     auto end = std::chrono::high_resolution_clock::now();

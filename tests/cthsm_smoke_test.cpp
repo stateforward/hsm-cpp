@@ -10,5 +10,5 @@ TEST_CASE("cthsm smoke test compiles and exposes basic APIs") {
   machine.start(inst);
 
   CHECK(machine.state() == "/smoke");
-  CHECK_NOTHROW(machine.dispatch(inst, "noop"));
+  CHECK_NOTHROW(machine.dispatch(inst, cthsm::AnyEvent{"noop"}));
 }

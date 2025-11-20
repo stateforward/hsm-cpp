@@ -12,6 +12,6 @@ int main() {
   std::cout << "cthsm example current state: "
             << (state.empty() ? "<none>" : std::string(state)) << '\n';
 
-  machine.dispatch(inst, "noop");
+  machine.dispatch(inst, cthsm::AnyEvent{"noop"});
   return 0;
 }

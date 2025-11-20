@@ -409,24 +409,30 @@ constexpr void collect_states(ModelData& data, populate_ctx<ModelData>& ctx,
 template <typename ModelData, typename... Actions>
 constexpr void collect_states(ModelData& data, populate_ctx<ModelData>& ctx, 
                               const entry_expr<Actions...>&, std::string_view, std::size_t state_id) {
-    data.states[state_id].entry_start = ctx.entry_idx;
-    data.states[state_id].entry_count = sizeof...(Actions);
+    if (data.states[state_id].entry_start == invalid_index) {
+        data.states[state_id].entry_start = ctx.entry_idx;
+    }
+    data.states[state_id].entry_count += sizeof...(Actions);
     ctx.entry_idx += sizeof...(Actions);
 }
 
 template <typename ModelData, typename... Actions>
 constexpr void collect_states(ModelData& data, populate_ctx<ModelData>& ctx, 
                               const exit_expr<Actions...>&, std::string_view, std::size_t state_id) {
-    data.states[state_id].exit_start = ctx.exit_idx;
-    data.states[state_id].exit_count = sizeof...(Actions);
+    if (data.states[state_id].exit_start == invalid_index) {
+        data.states[state_id].exit_start = ctx.exit_idx;
+    }
+    data.states[state_id].exit_count += sizeof...(Actions);
     ctx.exit_idx += sizeof...(Actions);
 }
 
 template <typename ModelData, typename... Actions>
 constexpr void collect_states(ModelData& data, populate_ctx<ModelData>& ctx, 
                               const activity_expr<Actions...>&, std::string_view, std::size_t state_id) {
-    data.states[state_id].activity_start = ctx.activity_idx;
-    data.states[state_id].activity_count = sizeof...(Actions);
+    if (data.states[state_id].activity_start == invalid_index) {
+        data.states[state_id].activity_start = ctx.activity_idx;
+    }
+    data.states[state_id].activity_count += sizeof...(Actions);
     ctx.activity_idx += sizeof...(Actions);
 }
 
@@ -638,10 +644,17 @@ constexpr void get_effect_info(const Tuple& t, std::size_t& start, std::size_t& 
     if constexpr (I < std::tuple_size_v<Tuple>) {
         using Type = std::decay_t<decltype(get<I>(t))>;
         if constexpr (is_effect<Type>::value) {
-             get_effect_details(get<I>(t), start, count, current_idx);
+             if (start == invalid_index) start = current_idx;
+             
+             std::size_t dummy_start = 0;
+             std::size_t this_count = 0;
+             get_effect_details(get<I>(t), dummy_start, this_count, current_idx);
+             count += this_count;
         } else {
-             get_effect_info<Tuple, I+1>(t, start, count, current_idx);
+             // Recurse for other types but don't consume effect indices
+             // But other types don't consume indices anyway.
         }
+        get_effect_info<Tuple, I+1>(t, start, count, current_idx);
     }
 }
 

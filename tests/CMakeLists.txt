@@ -1,6 +1,7 @@
 # Find all test source files (including subdirectories)
 file(GLOB_RECURSE TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -fno-omit-frame-pointer -std=c++23")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} --coverage")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
 
 find_library(GPERFTOOLS_PROFILER profiler)
 find_path(GPERFTOOLS_INCLUDE_DIR gperftools/profiler.h)

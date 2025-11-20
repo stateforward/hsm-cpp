@@ -3,6 +3,8 @@ project(hsm VERSION 0.1.0)
 
 # Workaround for doctest FetchContent compatibility
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
+cmake_policy(SET CMP0048 NEW)
+cmake_policy(SET CMP0003 NEW)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
