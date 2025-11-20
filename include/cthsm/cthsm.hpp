@@ -63,7 +63,7 @@ struct SequentialTaskProvider {
     return TaskHandle{};
   }
 
-  void sleep_for(std::chrono::milliseconds /*duration*/) {
+  void sleep_for(std::chrono::milliseconds /*duration*/, Context* /*ctx*/ = nullptr) {
     // No-op in sequential default
   }
 };
@@ -243,6 +243,7 @@ consteval std::string_view type_name<Any>() {
 }
 }
 
+using Clock = std::chrono::steady_clock;
 
 struct Instance {
   constexpr Instance() = default;
@@ -429,9 +430,10 @@ template <typename Callable>
 template <typename Name, typename... Partials>
 [[nodiscard]] constexpr auto define(Name name,
                                     Partials&&... partials) noexcept {
-  using name_type = std::decay_t<Name>;
-  using expression_type =
-      detail::model_expression<name_type, std::decay_t<Partials>...>;
+    using namespace detail; // Expose detail to access structural tuples
+    using name_type = std::decay_t<Name>;
+    using expression_type =
+        detail::model_expression<name_type, std::decay_t<Partials>...>;
   return expression_type{
       name_type{name},
       detail::make_structural_tuple(std::forward<Partials>(partials)...)};
@@ -445,11 +447,13 @@ template <std::size_t N, typename... Partials>
 }
 
 template <auto Model, typename InstanceType = Instance,
-          typename TaskProvider = SequentialTaskProvider>
+          typename TaskProvider = SequentialTaskProvider,
+          typename Clock = cthsm::Clock>
 struct compile {
   static constexpr auto model_ = Model;
   using instance_type = InstanceType;
   using TaskProviderType = TaskProvider;
+  using ClockType = Clock;
 
   // 1. Model Normalization & Tables
   static constexpr auto normalized_model = detail::normalize<model_>();
@@ -547,7 +551,7 @@ struct compile {
           using RetType = decltype(invoke(std::get<I>(timer_tuple), c, i, e));
           if constexpr (detail::is_duration_v<RetType>) {
               auto d = invoke(std::get<I>(timer_tuple), c, i, e);
-              self.task_provider_.sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(d));
+              self.task_provider_.sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(d), &c);
               if (!c.is_set()) {
                   self.dispatch_timer_event(i, I); // dispatch event for timer I
               }
@@ -557,7 +561,7 @@ struct compile {
           if constexpr (detail::is_duration_v<RetType>) {
               auto d = invoke(std::get<I>(timer_tuple), c, i, e);
               while (!c.is_set()) {
-                  self.task_provider_.sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(d));
+                  self.task_provider_.sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(d), &c);
                   if (c.is_set()) break;
                   self.dispatch_timer_event(i, I);
               }
@@ -566,7 +570,7 @@ struct compile {
           if constexpr (std::is_same_v<decltype(invoke(std::get<I>(timer_tuple), c, i, e)), bool>) {
                bool res = invoke(std::get<I>(timer_tuple), c, i, e);
                while (!res && !c.is_set()) {
-                   self.task_provider_.sleep_for(std::chrono::milliseconds(10));
+                   self.task_provider_.sleep_for(std::chrono::milliseconds(10), &c);
                    if (c.is_set()) break;
                    res = invoke(std::get<I>(timer_tuple), c, i, e);
                }
@@ -582,13 +586,14 @@ struct compile {
           
           using TP = decltype(tp);
           if constexpr (detail::is_duration_v<TP> || std::is_same_v<TP, bool> || std::is_void_v<TP>) {
-              // Fallback/No-op for mismatched types (e.g. compilation of 'after' timer type in 'at' block)
-          } else {
-              // Assume TP is a time_point with clock
-              auto now = TP::clock::now();
-              auto d = tp - now;
+          // Fallback/No-op for mismatched types
+        } else {
+          // Use the HSM's defined Clock.
+          // The time_point returned by at() expression must be compatible with this Clock.
+          auto now = Clock::now();
+          auto d = tp - now;
               if (d.count() > 0) {
-                 self.task_provider_.sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(d));
+                 self.task_provider_.sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(d), &c);
               }
               if (!c.is_set()) self.dispatch_timer_event(i, I);
           }
@@ -640,24 +645,39 @@ struct compile {
   std::array<std::size_t, max_deferred> deferred_queue_;
   std::size_t deferred_count_;
 
-  std::array<std::optional<ActiveTask>, total_activity_count> active_tasks_;
   std::array<Context, total_activity_count> activity_contexts_;
+  std::array<std::optional<ActiveTask>, total_activity_count> active_tasks_;
 
-  std::array<std::optional<ActiveTask>, total_timer_count> active_timer_tasks_;
   std::array<Context, total_timer_count> timer_contexts_;
+  std::array<std::optional<ActiveTask>, total_timer_count> active_timer_tasks_;
 
   std::size_t current_state_id_;
 
-  // 6. Constructor
+  // 6. Constructor & Destructor
   constexpr compile(TaskProvider tp = {}) noexcept
       : task_provider_(std::move(tp)),
         deferred_queue_{},
         deferred_count_{0},
-        active_tasks_{},
         activity_contexts_{},
-        active_timer_tasks_{},
+        active_tasks_{},
         timer_contexts_{},
+        active_timer_tasks_{},
         current_state_id_(detail::invalid_index) {}
+
+  ~compile() {
+    // Cancel all active tasks to unblock threads waiting on contexts
+    for (auto& task_opt : active_tasks_) {
+      if (task_opt.has_value()) {
+        task_opt->ctx->set();
+      }
+    }
+    for (auto& task_opt : active_timer_tasks_) {
+      if (task_opt.has_value()) {
+        task_opt->ctx->set();
+      }
+    }
+    // Member destructors will join tasks now that they are signalled
+  }
 
   // 7. Accessor
   [[nodiscard]] constexpr std::string_view state() const noexcept {
