@@ -98,4 +98,14 @@ struct every_expr {
   Callable duration;
 };
 
+template <typename Callable>
+struct when_expr {
+  Callable predicate;
+};
+
+template <typename Callable>
+struct at_expr {
+  Callable time_point;
+};
+
 }  // namespace cthsm::detail

@@ -234,6 +234,10 @@ template <typename T>
 constexpr auto extract_timers_item(const T& node) {
     if constexpr (requires { node.duration; }) { // after/every
         return std::make_tuple(node.duration);
+    } else if constexpr (requires { node.predicate; }) { // when
+        return std::make_tuple(node.predicate);
+    } else if constexpr (requires { node.time_point; }) { // at
+        return std::make_tuple(node.time_point);
     } else {
         return std::tuple<>{};
     }

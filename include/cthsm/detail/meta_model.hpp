@@ -33,7 +33,7 @@ constexpr bool any(state_flags flags, state_flags mask) noexcept {
 
 enum class transition_kind : unsigned { external, internal, self, local };
 
-enum class timer_kind : unsigned { none, after, every };
+enum class timer_kind : unsigned { none, after, every, when, at };
 
 struct state_desc {
   std::size_t id{invalid_index};

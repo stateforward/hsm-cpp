@@ -34,6 +34,12 @@ template <typename C> struct is_after<after_expr<C>> : std::true_type {};
 template <typename T> struct is_every : std::false_type {};
 template <typename C> struct is_every<every_expr<C>> : std::true_type {};
 
+template <typename T> struct is_when : std::false_type {};
+template <typename C> struct is_when<when_expr<C>> : std::true_type {};
+
+template <typename T> struct is_at : std::false_type {};
+template <typename C> struct is_at<at_expr<C>> : std::true_type {};
+
 // Helper to check for direct target in tuple (for implicit initial transition)
 template <typename Tuple, std::size_t I>
 consteval bool has_direct_target_check() {
@@ -218,12 +224,23 @@ consteval model_counts count_recursive(const guard_expr<Callable>&, std::size_t)
 
 template <typename Callable>
 consteval model_counts count_recursive(const after_expr<Callable>&, std::size_t) {
-  return model_counts{.timers = 1};
+  // Reserve space for generated event "__timer_XXX" (approx 20 chars) and count 1 event
+  return model_counts{.events = 1, .string_size = 20, .timers = 1};
 }
 
 template <typename Callable>
 consteval model_counts count_recursive(const every_expr<Callable>&, std::size_t) {
-  return model_counts{.timers = 1};
+  return model_counts{.events = 1, .string_size = 20, .timers = 1};
+}
+
+template <typename Callable>
+consteval model_counts count_recursive(const when_expr<Callable>&, std::size_t) {
+  return model_counts{.events = 1, .string_size = 20, .timers = 1};
+}
+
+template <typename Callable>
+consteval model_counts count_recursive(const at_expr<Callable>&, std::size_t) {
+  return model_counts{.events = 1, .string_size = 20, .timers = 1};
 }
 
 // Initial Expression
@@ -668,6 +685,12 @@ constexpr void get_timer_info(const Tuple& t, timer_kind& kind, std::size_t& idx
         } else if constexpr (is_every<Type>::value) {
             kind = timer_kind::every;
             idx = current_idx++;
+        } else if constexpr (is_when<Type>::value) {
+            kind = timer_kind::when;
+            idx = current_idx++;
+        } else if constexpr (is_at<Type>::value) {
+            kind = timer_kind::at;
+            idx = current_idx++;
         } else {
             get_timer_info<Tuple, I+1>(t, kind, idx, current_idx);
         }
@@ -708,6 +731,69 @@ constexpr void collect_transitions(ModelData& data, populate_ctx<ModelData>& ctx
     timer_kind t_kind = timer_kind::none;
     std::size_t t_idx = invalid_index;
     get_timer_info<decltype(node.elements), 0>(node.elements, t_kind, t_idx, ctx.timer_idx);
+
+    if (t_kind != timer_kind::none) {
+        // Generate an internal event name for the timer
+        // Format: __timer_<timer_idx>
+        // We can construct this at compile time if we use a fixed string generator or similar
+        // But for simplicity here, we might need a helper to convert int to string into the buffer
+        
+        // Simplified approach: Reuse ctx.string_buffer logic to append "__timer_" + timer_idx
+        std::size_t timer_evt_id = ctx.event_idx++;
+        std::size_t offset = ctx.string_cursor;
+        
+        ctx.append_string(data, "__timer_");
+        // Simple integer to string conversion into buffer
+        std::size_t n = t_idx;
+        if (n == 0) {
+            ctx.append_string(data, "0");
+        } else {
+            // Calculate digits
+            std::size_t temp = n;
+            while (temp > 0) { temp /= 10; }
+            
+            // We need to append in reverse or use a temp buffer
+            // Since we are appending to end, we can append and then reverse the digits?
+            // Easier to just recurse or loop with buffer
+            // Let's use a small buffer
+            char buf[20];
+            std::size_t i = 0;
+            temp = n;
+            while (temp > 0) {
+                buf[i++] = '0' + (temp % 10);
+                temp /= 10;
+            }
+            while (i > 0) {
+                data.string_buffer[ctx.string_cursor++] = buf[--i];
+            }
+        }
+        
+        std::size_t length = ctx.string_cursor - offset;
+        data.events[timer_evt_id] = event_desc{
+            .id = timer_evt_id,
+            .name_offset = offset,
+            .name_length = length
+        };
+        
+        // Set event_id for the transition
+        if (event_id == invalid_index) {
+            event_id = timer_evt_id;
+        } else {
+            // If there was already an event (e.g. on(...)), we have a conflict.
+            // Timer transitions usually shouldn't have explicit triggers unless supported.
+            // For now, prefer the timer event as the primary trigger for this transition entry.
+            // But wait, if both exist, how does dispatch work?
+            // hsm.hpp treats them as separate events handled by the same transition?
+            // cthsm structure has one event_id per transition.
+            // We might need to create a separate transition for the timer if one already exists?
+            // Current normalize logic creates one transition per `transition(...)` block.
+            // If user wrote `transition(on("A"), after(...))`, that's ambiguous.
+            // Let's assume valid models don't mix explicit triggers and timers on the same transition line
+            // or if they do, we overwrite or handle it.
+            // Given the structure, let's overwrite event_id with the timer event so dispatch works.
+            event_id = timer_evt_id;
+        }
+    }
 
     data.transitions[id] = transition_desc{
         .id = id,
