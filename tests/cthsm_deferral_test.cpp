@@ -18,11 +18,11 @@ TEST_CASE("Deferral - Basic") {
   sm.start(inst);
 
   // Dispatch A in idle -> deferred
-  sm.dispatch(inst, cthsm::AnyEvent{"event_A"});
+  sm.dispatch(inst, cthsm::EventBase{"event_A"});
   CHECK(sm.state() == "/machine/idle");
 
   // Dispatch B -> switch to processing, then A re-dispatched -> switch to done
-  sm.dispatch(inst, cthsm::AnyEvent{"event_B"});
+  sm.dispatch(inst, cthsm::EventBase{"event_B"});
   CHECK(sm.state() == "/machine/done");
 }
 
@@ -44,10 +44,10 @@ TEST_CASE("Deferral - Hierarchy") {
   sm.start(inst);
 
   sm.dispatch(inst,
-              cthsm::AnyEvent{"event_A"});  // Should be deferred by parent p
+              cthsm::EventBase{"event_A"});  // Should be deferred by parent p
   CHECK(sm.state() == "/machine/p/c");
 
-  sm.dispatch(inst, cthsm::AnyEvent{"event_B"});  // Transition to other
+  sm.dispatch(inst, cthsm::EventBase{"event_B"});  // Transition to other
   // A re-dispatched -> done
   CHECK(sm.state() == "/machine/done");
 }

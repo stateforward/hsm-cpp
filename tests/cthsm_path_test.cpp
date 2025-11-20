@@ -16,19 +16,19 @@ struct PathTestInstance : public Instance {
   void clear() { execution_log.clear(); }
 };
 
-void entry_parent(Context&, Instance& i, const AnyEvent&) {
+void entry_parent(Context&, Instance& i, const EventBase&) {
   static_cast<PathTestInstance&>(i).log("entry_parent");
 }
-void exit_parent(Context&, Instance& i, const AnyEvent&) {
+void exit_parent(Context&, Instance& i, const EventBase&) {
   static_cast<PathTestInstance&>(i).log("exit_parent");
 }
-void entry_child(Context&, Instance& i, const AnyEvent&) {
+void entry_child(Context&, Instance& i, const EventBase&) {
   static_cast<PathTestInstance&>(i).log("entry_child");
 }
-void entry_state1(Context&, Instance& i, const AnyEvent&) {
+void entry_state1(Context&, Instance& i, const EventBase&) {
   static_cast<PathTestInstance&>(i).log("entry_state1");
 }
-void entry_state2(Context&, Instance& i, const AnyEvent&) {
+void entry_state2(Context&, Instance& i, const EventBase&) {
   static_cast<PathTestInstance&>(i).log("entry_state2");
 }
 
@@ -49,7 +49,7 @@ TEST_CASE("Path Resolution") {
     CHECK(sm.state() == "/TestMachine/parent");
     instance.clear();
 
-    sm.dispatch(instance, cthsm::AnyEvent{"TO_CHILD"});
+    sm.dispatch(instance, cthsm::EventBase{"TO_CHILD"});
 
     // cthsm supports child resolution
     CHECK(sm.state() == "/TestMachine/parent/child");
@@ -74,7 +74,7 @@ TEST_CASE("Path Resolution") {
     CHECK(sm.state() == "/ModelLevel/state1");
     instance.clear();
 
-    sm.dispatch(instance, cthsm::AnyEvent{"TO_STATE2"});
+    sm.dispatch(instance, cthsm::EventBase{"TO_STATE2"});
 
     CHECK(sm.state() == "/ModelLevel/state2");
     CHECK(instance.execution_log.size() == 1);
@@ -107,7 +107,7 @@ TEST_CASE("Path Resolution") {
     sm.start(instance);
 
     CHECK(sm.state() == "/SiblingRes/s1");
-    sm.dispatch(instance, cthsm::AnyEvent{"GO"});
+    sm.dispatch(instance, cthsm::EventBase{"GO"});
     CHECK(sm.state() == "/SiblingRes/s2");
   }
 }

@@ -26,95 +26,95 @@ struct CompositeInstance : public Instance {
 };
 
 // Behaviors
-void entry_composite(Context&, Instance& i, const AnyEvent&) {
+void entry_composite(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_composite");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void exit_composite(Context&, Instance& i, const AnyEvent&) {
+void exit_composite(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("exit_composite");
   static_cast<CompositeInstance&>(i).exit_count++;
 }
 
-void entry_child1(Context&, Instance& i, const AnyEvent&) {
+void entry_child1(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_child1");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void exit_child1(Context&, Instance& i, const AnyEvent&) {
+void exit_child1(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("exit_child1");
   static_cast<CompositeInstance&>(i).exit_count++;
 }
 
-void entry_child2(Context&, Instance& i, const AnyEvent&) {
+void entry_child2(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_child2");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void exit_child2(Context&, Instance& i, const AnyEvent&) {
+void exit_child2(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("exit_child2");
   static_cast<CompositeInstance&>(i).exit_count++;
 }
 
-void entry_other(Context&, Instance& i, const AnyEvent&) {
+void entry_other(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_other");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
 
-void effect_initial(Context&, Instance& i, const AnyEvent&) {
+void effect_initial(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("effect_initial");
   static_cast<CompositeInstance&>(i).effect_count++;
 }
 
-void entry_outer(Context&, Instance& i, const AnyEvent&) {
+void entry_outer(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_outer");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void entry_inner(Context&, Instance& i, const AnyEvent&) {
+void entry_inner(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_inner");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void entry_deepest(Context&, Instance& i, const AnyEvent&) {
+void entry_deepest(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_deepest");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void entry_deepest_alt(Context&, Instance& i, const AnyEvent&) {
+void entry_deepest_alt(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_deepest_alt");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void entry_inner_alt(Context&, Instance& i, const AnyEvent&) {
+void entry_inner_alt(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_inner_alt");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
 
-void entry_start(Context&, Instance& i, const AnyEvent&) {
+void entry_start(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_start");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void exit_start(Context&, Instance& i, const AnyEvent&) {
+void exit_start(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("exit_start");
   static_cast<CompositeInstance&>(i).exit_count++;
 }
 
-void entry_comp1(Context&, Instance& i, const AnyEvent&) {
+void entry_comp1(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_comp1");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void entry_comp1_child1(Context&, Instance& i, const AnyEvent&) {
+void entry_comp1_child1(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_comp1_child1");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void entry_comp1_child2(Context&, Instance& i, const AnyEvent&) {
+void entry_comp1_child2(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_comp1_child2");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
 
-void entry_comp2(Context&, Instance& i, const AnyEvent&) {
+void entry_comp2(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_comp2");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void entry_comp2_child1(Context&, Instance& i, const AnyEvent&) {
+void entry_comp2_child1(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_comp2_child1");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
-void entry_comp2_child2(Context&, Instance& i, const AnyEvent&) {
+void entry_comp2_child2(Context&, Instance& i, const EventBase&) {
   static_cast<CompositeInstance&>(i).log("entry_comp2_child2");
   static_cast<CompositeInstance&>(i).entry_count++;
 }
@@ -209,9 +209,9 @@ TEST_CASE("Composite States with Initial Pseudostates") {
 
     CHECK(sm.state() == "/TransitionToComposite/start");
     instance.clear_log();
-    sm.dispatch(instance, cthsm::AnyEvent{"GO_TO_COMPOSITE"});
+    sm.dispatch(instance, cthsm::EventBase{"GO_TO_COMPOSITE"});
     // Transition to composite state
-    sm.dispatch(instance, cthsm::AnyEvent{"GO_TO_COMPOSITE"});
+    sm.dispatch(instance, cthsm::EventBase{"GO_TO_COMPOSITE"});
 
     // Should exit start, enter composite, then enter child1 via initial
     CHECK(sm.state() == "/TransitionToComposite/composite/child1");
@@ -244,7 +244,7 @@ TEST_CASE("Composite States with Initial Pseudostates") {
     instance.clear_log();
 
     // Direct transition to child2
-    sm.dispatch(instance, cthsm::AnyEvent{"GO_TO_CHILD2"});
+    sm.dispatch(instance, cthsm::EventBase{"GO_TO_CHILD2"});
 
     // Should go directly to child2, bypassing the initial transition
     CHECK(sm.state() == "/DirectToNested/composite/child2");
@@ -285,7 +285,7 @@ TEST_CASE("Composite States with Initial Pseudostates") {
     instance.clear_log();
 
     // Transition to second composite
-    sm.dispatch(instance, cthsm::AnyEvent{"TO_COMP2"});
+    sm.dispatch(instance, cthsm::EventBase{"TO_COMP2"});
 
     // Second composite should enter child2 (its initial)
     CHECK(sm.state() == "/MultipleComposites/comp2/comp2_child2");

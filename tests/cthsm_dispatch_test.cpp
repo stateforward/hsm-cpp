@@ -36,7 +36,7 @@ TEST_CASE("Dispatch - Simple Transition") {
   sm.start(inst);
   CHECK(sm.state() == "/machine/idle");
 
-  sm.dispatch(inst, cthsm::AnyEvent{"start"});
+  sm.dispatch(inst, cthsm::EventBase{"start"});
   CHECK(sm.state() == "/machine/active");
 }
 
@@ -51,10 +51,10 @@ TEST_CASE("Dispatch - Unknown Event Ignored") {
   sm.start(inst);
   CHECK(sm.state() == "/machine/idle");
 
-  sm.dispatch(inst, cthsm::AnyEvent{"unknown"});
+  sm.dispatch(inst, cthsm::EventBase{"unknown"});
   CHECK(sm.state() == "/machine/idle");  // Should stay
 
-  sm.dispatch(inst, cthsm::AnyEvent{"start"});
+  sm.dispatch(inst, cthsm::EventBase{"start"});
   CHECK(sm.state() == "/machine/active");
 }
 
@@ -72,10 +72,10 @@ TEST_CASE("Dispatch - Hierarchical Transition") {
   sm.start(inst);
   CHECK(sm.state() == "/machine/idle");
 
-  sm.dispatch(inst, cthsm::AnyEvent{"start"});
+  sm.dispatch(inst, cthsm::EventBase{"start"});
   CHECK(sm.state() == "/machine/working/processing");
 
-  sm.dispatch(inst, cthsm::AnyEvent{"done"});
+  sm.dispatch(inst, cthsm::EventBase{"done"});
   CHECK(sm.state() == "/machine/idle");
 }
 
@@ -91,13 +91,13 @@ TEST_CASE("Dispatch - Sibling Transitions") {
   sm.start(inst);
   CHECK(sm.state() == "/machine/s1");
 
-  sm.dispatch(inst, cthsm::AnyEvent{"next"});
+  sm.dispatch(inst, cthsm::EventBase{"next"});
   CHECK(sm.state() == "/machine/s2");
 
-  sm.dispatch(inst, cthsm::AnyEvent{"next"});
+  sm.dispatch(inst, cthsm::EventBase{"next"});
   CHECK(sm.state() == "/machine/s3");
 
-  sm.dispatch(inst, cthsm::AnyEvent{"reset"});
+  sm.dispatch(inst, cthsm::EventBase{"reset"});
   CHECK(sm.state() == "/machine/s1");
 }
 

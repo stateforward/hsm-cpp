@@ -34,9 +34,9 @@ struct BenchmarkInstance : public Instance {
 };
 
 // Behaviors
-void noBehavior(Context&, Instance&, const AnyEvent&) {}
+void noBehavior(Context&, Instance&, const EventBase&) {}
 
-void activityBehavior(Context&, Instance&, const AnyEvent&) {
+void activityBehavior(Context&, Instance&, const EventBase&) {
   std::this_thread::yield();
 }
 
@@ -59,16 +59,16 @@ BenchmarkResult runBenchmark(const std::string& scenarioName,
 
   // Warmup
   for (int i = 0; i < warmupIterations; i++) {
-    sm.dispatch(instance, AnyEvent{event1Name});
-    sm.dispatch(instance, AnyEvent{event2Name});
+    sm.dispatch(instance, EventBase{event1Name});
+    sm.dispatch(instance, EventBase{event2Name});
   }
 
   // Benchmark
   auto start = std::chrono::high_resolution_clock::now();
 
   for (int i = 0; i < benchmarkIterations; i++) {
-    sm.dispatch(instance, AnyEvent{event1Name});
-    sm.dispatch(instance, AnyEvent{event2Name});
+    sm.dispatch(instance, EventBase{event1Name});
+    sm.dispatch(instance, EventBase{event2Name});
   }
 
   auto end = std::chrono::high_resolution_clock::now();

@@ -210,9 +210,9 @@ struct extract_instance_type<R (*)(Args...) noexcept> {
 
 }  // namespace detail
 
-struct AnyEvent {
-  constexpr AnyEvent() noexcept = default;
-  constexpr explicit AnyEvent(std::string_view name) noexcept : name_(name) {}
+struct EventBase {
+  constexpr EventBase() noexcept = default;
+  constexpr explicit EventBase(std::string_view name) noexcept : name_(name) {}
 
   [[nodiscard]] constexpr std::string_view name() const noexcept {
     return name_;
@@ -222,11 +222,27 @@ struct AnyEvent {
   std::string_view name_{};
 };
 
-template <typename T>
-struct Event : AnyEvent {
-  static constexpr std::string_view name_v = detail::type_name<T>();
-  constexpr Event() : AnyEvent(name_v) {}
+template <typename T = void>
+struct Event : EventBase {
+    static constexpr std::string_view name_v = detail::type_name<T>();
+    constexpr Event() : EventBase(name_v) {}
 };
+
+template <>
+struct Event<void> : EventBase {
+    constexpr Event() noexcept = default;
+    constexpr explicit Event(std::string_view name) noexcept : EventBase(name) {}
+};
+
+struct Any {};
+
+namespace detail {
+template <>
+consteval std::string_view type_name<Any>() {
+  return "*";
+}
+}
+
 
 struct Instance {
   constexpr Instance() = default;
@@ -459,38 +475,24 @@ struct compile {
   };
 
   // 4. Thunk Types & Functions
-  using behavior_fn = void (*)(Context&, instance_type&, const AnyEvent&);
-  using guard_fn = bool (*)(Context&, instance_type&, const AnyEvent&);
-  using timer_fn = void (*)(Context&, instance_type&, const AnyEvent&,
-                            std::size_t, compile&, detail::timer_kind);
+  using behavior_fn = void (*)(Context&, instance_type&, const EventBase&);
+  using guard_fn = bool (*)(Context&, instance_type&, const EventBase&);
+  using timer_fn = void (*)(Context&, instance_type&, const EventBase&, std::size_t, compile&, detail::timer_kind); 
 
   template <typename F>
   static constexpr auto invoke(F&& f, Context& c, instance_type& i,
-                               const AnyEvent& e) -> decltype(auto) {
+                               const EventBase& e) -> decltype(auto) {
     using TargetInst =
         typename detail::extract_instance_type<std::decay_t<F>>::type;
-    /*
-    std::cout << "Invoke: " << e.name()
-              << " TargetInst: " << (std::is_void_v<TargetInst> ? "void" :
-    detail::type_name<TargetInst>())
-              << " Instance: " << detail::type_name<instance_type>()
-              << " Addr: " << &i;
-
-    using ArgType = typename detail::extract_event_type<std::decay_t<F>>::type;
-    if constexpr (!std::is_void_v<ArgType>) {
-         std::cout << " ArgType: " << detail::type_name<ArgType>();
-    }
-    std::cout << std::endl;
-    */
 
     using EffInst = std::conditional_t<!std::is_void_v<TargetInst>, TargetInst,
                                        instance_type>;
     auto& eff_i = static_cast<EffInst&>(i);
 
-    if constexpr (std::is_invocable_v<F, Context&, EffInst&, const AnyEvent&>) {
-      // std::cout << "Calling untyped handler" << std::endl;
+    if constexpr (std::is_invocable_v<F, Context&, EffInst&,
+                                      const EventBase&>) {
       return f(c, eff_i, e);
-    } else if constexpr (std::is_invocable_v<F, EffInst&, const AnyEvent&>) {
+    } else if constexpr (std::is_invocable_v<F, EffInst&, const EventBase&>) {
       return f(eff_i, e);
     } else if constexpr (std::is_invocable_v<F, EffInst&>) {
       return f(eff_i);
@@ -501,9 +503,8 @@ struct compile {
       using ArgType =
           typename detail::extract_event_type<std::decay_t<F>>::type;
       if constexpr (!std::is_void_v<ArgType> &&
-                    !std::is_same_v<ArgType, AnyEvent>) {
+                    !std::is_same_v<ArgType, EventBase>) {
         if (e.name() == detail::type_name<ArgType>()) {
-          // We need to support (Context, Instance, Typed) and (Instance, Typed)
           if constexpr (std::is_invocable_v<F, Context&, EffInst&,
                                             const ArgType&>) {
             return f(c, eff_i, static_cast<const ArgType&>(e));
@@ -512,130 +513,86 @@ struct compile {
             return f(eff_i, static_cast<const ArgType&>(e));
           }
         }
-        // Mismatch path
-        if constexpr (std::is_invocable_v<F, Context&, EffInst&,
-                                          const ArgType&>) {
-          using R = std::invoke_result_t<F, Context&, EffInst&, const ArgType&>;
-          if constexpr (std::is_same_v<R, bool>)
-            return false;
-          else
-            return;
+        
+        // Fallback for mismatch
+        if constexpr (std::is_invocable_v<F, Context&, EffInst&, const ArgType&>) {
+            using R = std::invoke_result_t<F, Context&, EffInst&, const ArgType&>;
+            if constexpr (std::is_same_v<R, bool>) return false;
+            else return;
         } else if constexpr (std::is_invocable_v<F, EffInst&, const ArgType&>) {
-          using R = std::invoke_result_t<F, EffInst&, const ArgType&>;
-          if constexpr (std::is_same_v<R, bool>)
-            return false;
-          else
-            return;
+            using R = std::invoke_result_t<F, EffInst&, const ArgType&>;
+            if constexpr (std::is_same_v<R, bool>) return false;
+            else return;
         } else {
-          return;  // Fallback
+            return;
         }
       } else {
-        if constexpr (std::is_invocable_v<F, Context&, EffInst&,
-                                          const AnyEvent&>) {
-          return f(c, eff_i, e);
-        }
-        return f;
+          return;
       }
     }
   }
 
-  template <std::size_t I>
-  static void entry_thunk(Context& c, instance_type& i, const AnyEvent& e) {
-    invoke(std::get<I>(entry_tuple), c, i, e);
-  }
-  template <std::size_t I>
-  static void exit_thunk(Context& c, instance_type& i, const AnyEvent& e) {
-    invoke(std::get<I>(exit_tuple), c, i, e);
-  }
-  template <std::size_t I>
-  static void activity_thunk(Context& c, instance_type& i, const AnyEvent& e) {
-    invoke(std::get<I>(activity_tuple), c, i, e);
-  }
-  template <std::size_t I>
-  static void effect_thunk(Context& c, instance_type& i, const AnyEvent& e) {
-    invoke(std::get<I>(effect_tuple), c, i, e);
-  }
-  template <std::size_t I>
-  static bool guard_thunk(Context& c, instance_type& i, const AnyEvent& e) {
-    return invoke(std::get<I>(guard_tuple), c, i, e);
-  }
-  template <std::size_t I>
-  static void timer_thunk(Context& c, instance_type& i, const AnyEvent& e,
-                          std::size_t /*id*/, compile& self,
-                          detail::timer_kind kind) {
-    // Dispatch based logic:
-    // 1. Find transition associated with this timer index
-    // 2. Get event name from transition
-    // 3. Dispatch that event
-
-    if (kind == detail::timer_kind::after) {
-      // d is expected to be a duration here because extract_timers handles type
-      // checking However, in compile time generic lambda, types are not
-      // guaranteed if we don't constrain The extract_timers only returns a
-      // tuple with duration for after/every. But invoke result type depends on
-      // the callable. If the callable returns bool (user error?), duration_cast
-      // will fail.
-
-      // Let's use a helper or constexpr check.
-      // But we are in a template function `timer_thunk<I>`.
-      // We can check the return type of invoke.
-
-      using RetType = decltype(invoke(std::get<I>(timer_tuple), c, i, e));
-      if constexpr (detail::is_duration_v<RetType>) {
-        auto d = invoke(std::get<I>(timer_tuple), c, i, e);
-        self.task_provider_.sleep_for(
-            std::chrono::duration_cast<std::chrono::milliseconds>(d));
-        if (!c.is_set()) {
-          self.dispatch_timer_event(i, I);  // dispatch event for timer I
-        }
+  template <std::size_t I> static void entry_thunk(Context& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(entry_tuple), c, i, e); }
+  template <std::size_t I> static void exit_thunk(Context& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(exit_tuple), c, i, e); }
+  template <std::size_t I> static void activity_thunk(Context& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(activity_tuple), c, i, e); }
+  template <std::size_t I> static void effect_thunk(Context& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(effect_tuple), c, i, e); }
+  template <std::size_t I> static bool guard_thunk(Context& c, instance_type& i, const EventBase& e) { return invoke(std::get<I>(guard_tuple), c, i, e); }
+  template <std::size_t I> static void timer_thunk(Context& c, instance_type& i, const EventBase& e, std::size_t /*id*/, compile& self, detail::timer_kind kind) { 
+      // Dispatch based logic: 
+      // 1. Find transition associated with this timer index
+      // 2. Get event name from transition
+      // 3. Dispatch that event
+      
+      if (kind == detail::timer_kind::after) {
+          using RetType = decltype(invoke(std::get<I>(timer_tuple), c, i, e));
+          if constexpr (detail::is_duration_v<RetType>) {
+              auto d = invoke(std::get<I>(timer_tuple), c, i, e);
+              self.task_provider_.sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(d));
+              if (!c.is_set()) {
+                  self.dispatch_timer_event(i, I); // dispatch event for timer I
+              }
+          }
+      } else if (kind == detail::timer_kind::every) {
+          using RetType = decltype(invoke(std::get<I>(timer_tuple), c, i, e));
+          if constexpr (detail::is_duration_v<RetType>) {
+              auto d = invoke(std::get<I>(timer_tuple), c, i, e);
+              while (!c.is_set()) {
+                  self.task_provider_.sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(d));
+                  if (c.is_set()) break;
+                  self.dispatch_timer_event(i, I);
+              }
+          }
+      } else if (kind == detail::timer_kind::when) {
+          if constexpr (std::is_same_v<decltype(invoke(std::get<I>(timer_tuple), c, i, e)), bool>) {
+               bool res = invoke(std::get<I>(timer_tuple), c, i, e);
+               while (!res && !c.is_set()) {
+                   self.task_provider_.sleep_for(std::chrono::milliseconds(10));
+                   if (c.is_set()) break;
+                   res = invoke(std::get<I>(timer_tuple), c, i, e);
+               }
+               if (!c.is_set()) self.dispatch_timer_event(i, I);
+          } else {
+               invoke(std::get<I>(timer_tuple), c, i, e);
+               if (!c.is_set()) self.dispatch_timer_event(i, I);
+          }
+      } else if (kind == detail::timer_kind::at) {
+          // at() support: calculate duration until time point
+          // invoke returns time_point
+          auto tp = invoke(std::get<I>(timer_tuple), c, i, e);
+          
+          using TP = decltype(tp);
+          if constexpr (detail::is_duration_v<TP> || std::is_same_v<TP, bool> || std::is_void_v<TP>) {
+              // Fallback/No-op for mismatched types (e.g. compilation of 'after' timer type in 'at' block)
+          } else {
+              // Assume TP is a time_point with clock
+              auto now = TP::clock::now();
+              auto d = tp - now;
+              if (d.count() > 0) {
+                 self.task_provider_.sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(d));
+              }
+              if (!c.is_set()) self.dispatch_timer_event(i, I);
+          }
       }
-    } else if (kind == detail::timer_kind::every) {
-      using RetType = decltype(invoke(std::get<I>(timer_tuple), c, i, e));
-      if constexpr (detail::is_duration_v<RetType>) {
-        auto d = invoke(std::get<I>(timer_tuple), c, i, e);
-        while (!c.is_set()) {
-          self.task_provider_.sleep_for(
-              std::chrono::duration_cast<std::chrono::milliseconds>(d));
-          if (c.is_set()) break;
-          self.dispatch_timer_event(i, I);
-        }
-      }
-    } else if (kind == detail::timer_kind::when) {
-      if constexpr (std::is_same_v<decltype(invoke(std::get<I>(timer_tuple), c,
-                                                   i, e)),
-                                   bool>) {
-        bool res = invoke(std::get<I>(timer_tuple), c, i, e);
-        while (!res && !c.is_set()) {
-          self.task_provider_.sleep_for(std::chrono::milliseconds(10));
-          if (c.is_set()) break;
-          res = invoke(std::get<I>(timer_tuple), c, i, e);
-        }
-        if (!c.is_set()) self.dispatch_timer_event(i, I);
-      } else {
-        invoke(std::get<I>(timer_tuple), c, i, e);
-        if (!c.is_set()) self.dispatch_timer_event(i, I);
-      }
-    } else if (kind == detail::timer_kind::at) {
-      // at() support: calculate duration until time point
-      // invoke returns time_point
-      auto tp = invoke(std::get<I>(timer_tuple), c, i, e);
-
-      using TP = decltype(tp);
-      if constexpr (detail::is_duration_v<TP> || std::is_same_v<TP, bool> ||
-                    std::is_void_v<TP>) {
-        // Fallback/No-op for mismatched types (e.g. compilation of 'after'
-        // timer type in 'at' block)
-      } else {
-        // Assume TP is a time_point with clock
-        auto now = TP::clock::now();
-        auto d = tp - now;
-        if (d.count() > 0) {
-          self.task_provider_.sleep_for(
-              std::chrono::duration_cast<std::chrono::milliseconds>(d));
-        }
-        if (!c.is_set()) self.dispatch_timer_event(i, I);
-      }
-    }
   }
 
   template <std::size_t... Is>
@@ -716,7 +673,7 @@ struct compile {
 
     // Enter root
     Context ctx{};
-    AnyEvent e{"init"};
+    EventBase e{"init"};
     enter_state(ctx, instance, e, 0);
 
     resolve_initial(ctx, instance, e, 0);
@@ -725,7 +682,7 @@ struct compile {
 
   constexpr void dispatch(instance_type& instance,
                           std::string_view event_name) noexcept {
-    AnyEvent e{event_name};
+    EventBase e{event_name};
 
     dispatch_internal(instance, e, event_name);
   }
@@ -733,7 +690,7 @@ struct compile {
   template <typename T>
   constexpr void dispatch(instance_type& instance) noexcept {
     static_assert(
-        std::is_base_of_v<AnyEvent, T> || std::is_base_of_v<Event<T>, T>,
+        std::is_base_of_v<EventBase, T> || std::is_base_of_v<Event<T>, T>,
         "Must be an Event");
     T e{};
     dispatch_internal(instance, e, e.name());
@@ -741,29 +698,27 @@ struct compile {
 
   template <typename T>
   constexpr void dispatch(instance_type& instance, const T& e) noexcept {
-    static_assert(std::is_base_of_v<AnyEvent, T>, "Must be an Event");
+    static_assert(std::is_base_of_v<EventBase, T>, "Must be an Event");
     dispatch_internal(instance, e, e.name());
   }
 
  private:
-  constexpr void dispatch_internal(instance_type& instance, const AnyEvent& e,
-                                   std::string_view event_name) {
-    Context ctx{};
-    std::size_t event_id = tables.get_event_id(event_name);
-    if (event_id == detail::invalid_index) return;
-
-    if (is_deferred(current_state_id_, event_id)) {
-      if (deferred_count_ < max_deferred) {
-        deferred_queue_[deferred_count_++] = event_id;
-      }
-      return;
-    }
-
-    bool handled = dispatch_event_impl(ctx, instance, e, event_id);
-
-    if (handled) {
-      process_deferred(instance);
-    }
+  constexpr void dispatch_internal(instance_type& instance, const EventBase& e, std::string_view event_name) {
+     Context ctx{};
+     std::size_t event_id = tables.get_event_id(event_name);
+     
+     if (event_id != detail::invalid_index && is_deferred(current_state_id_, event_id)) {
+         if (deferred_count_ < max_deferred) {
+             deferred_queue_[deferred_count_++] = event_id;
+         }
+         return;
+     }
+     
+     bool handled = dispatch_event_impl(ctx, instance, e, event_id);
+     
+     if (handled) {
+         process_deferred(instance);
+     }
   }
 
  public:
@@ -800,35 +755,60 @@ struct compile {
     return false;
   }
 
-  constexpr bool dispatch_event_impl(Context& ctx, instance_type& instance,
-                                     const AnyEvent& e, std::size_t event_id) {
-    if (current_state_id_ == detail::invalid_index) return false;
+  constexpr bool dispatch_event_impl(Context& ctx, instance_type& instance, const EventBase& e, std::size_t event_id) {
+      if (current_state_id_ == detail::invalid_index) return false;
+      
+      std::size_t curr = current_state_id_;
+      std::size_t t_id = detail::invalid_index;
 
-    std::size_t curr = current_state_id_;
-    std::size_t t_id = tables.transition_table[curr][event_id];
+      if (event_id != detail::invalid_index) {
+        t_id = tables.transition_table[curr][event_id];
+        
+        while (t_id != detail::invalid_index) {
+          const auto& t = normalized_model.transitions[t_id];
 
-    while (t_id != detail::invalid_index) {
-      const auto& t = normalized_model.transitions[t_id];
+          bool guard_passed = true;
+          if (t.guard_idx != detail::invalid_index) {
+            if (t.guard_idx < guard_table.size()) {
+              guard_passed = guard_table[t.guard_idx](ctx, instance, e);
+            }
+          }
 
-      bool guard_passed = true;
-      if (t.guard_idx != detail::invalid_index) {
-        if (t.guard_idx < guard_table.size()) {
-          guard_passed = guard_table[t.guard_idx](ctx, instance, e);
+          if (guard_passed) {
+            execute_transition(ctx, instance, e, t);
+            return true;
+          }
+
+          t_id = tables.next_candidate[t_id];
         }
       }
+      
+      // Fallback to wildcard
+      t_id = tables.get_wildcard_transition_id(curr);
 
-      if (guard_passed) {
-        execute_transition(ctx, instance, e, t);
-        return true;
+      while (t_id != detail::invalid_index) {
+        const auto& t = normalized_model.transitions[t_id];
+
+        bool guard_passed = true;
+        if (t.guard_idx != detail::invalid_index) {
+          if (t.guard_idx < guard_table.size()) {
+            guard_passed = guard_table[t.guard_idx](ctx, instance, e);
+          }
+        }
+
+        if (guard_passed) {
+          execute_transition(ctx, instance, e, t);
+          return true;
+        }
+
+        t_id = tables.next_candidate[t_id];
       }
 
-      t_id = tables.next_candidate[t_id];
-    }
-    return false;
+      return false;
   }
 
   constexpr void execute_transition(Context& ctx, instance_type& instance,
-                                    const AnyEvent& e, const auto& t) {
+                                    const EventBase& e, const auto& t) {
     if (t.target_id != detail::invalid_index) {
       std::size_t target = t.target_id;
       std::size_t old_state = current_state_id_;
@@ -856,7 +836,7 @@ struct compile {
   }
 
   constexpr void exit_to_lca(
-      Context& ctx, instance_type& instance, const AnyEvent& e,
+      Context& ctx, instance_type& instance, const EventBase& e,
       std::size_t source, std::size_t target,
       detail::transition_kind kind = detail::transition_kind::external) {
     std::array<std::size_t, 16> source_path;
@@ -901,7 +881,7 @@ struct compile {
   }
 
   constexpr void enter_from_lca(
-      Context& ctx, instance_type& instance, const AnyEvent& e,
+      Context& ctx, instance_type& instance, const EventBase& e,
       std::size_t source, std::size_t target,
       detail::transition_kind kind = detail::transition_kind::external) {
     std::array<std::size_t, 16> source_path;
@@ -947,7 +927,7 @@ struct compile {
   }
 
   constexpr void exit_state(Context& ctx, instance_type& instance,
-                            const AnyEvent& e, std::size_t s_id) {
+                            const EventBase& e, std::size_t s_id) {
     const auto& s = normalized_model.states[s_id];
     if (s.exit_start != detail::invalid_index) {
       for (std::size_t i = 0; i < s.exit_count; ++i) {
@@ -984,7 +964,7 @@ struct compile {
   }
 
   constexpr void enter_state(Context& ctx, instance_type& instance,
-                             const AnyEvent& e, std::size_t s_id) {
+                             const EventBase& e, std::size_t s_id) {
     const auto& s = normalized_model.states[s_id];
     if (s.entry_start != detail::invalid_index) {
       for (std::size_t i = 0; i < s.entry_count; ++i) {
@@ -1029,7 +1009,7 @@ struct compile {
   }
 
   constexpr void resolve_initial(Context& ctx, instance_type& instance,
-                                 const AnyEvent& e, std::size_t current) {
+                                 const EventBase& e, std::size_t current) {
     std::size_t init = normalized_model.states[current].initial_transition_id;
     while (init != detail::invalid_index) {
       const auto& t = normalized_model.transitions[init];
@@ -1063,13 +1043,13 @@ struct compile {
       bool guard_passed = true;
       if (t.guard_idx != detail::invalid_index) {
         if (t.guard_idx < guard_table.size()) {
-          AnyEvent empty{""};
+          EventBase empty{""};
           guard_passed = guard_table[t.guard_idx](ctx, instance, empty);
         }
       }
 
       if (guard_passed) {
-        AnyEvent empty{""};
+        EventBase empty{""};
         execute_transition(ctx, instance, empty, t);
         return;
       }

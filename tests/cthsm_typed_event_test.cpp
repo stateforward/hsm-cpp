@@ -22,7 +22,7 @@ struct Device : cthsm::Instance {
 
 constexpr auto typed_model = define(
     "device", initial(target("idle")),
-    state("idle", entry([](cthsm::Context&, Device& d, const cthsm::AnyEvent&) {
+    state("idle", entry([](cthsm::Context&, Device& d, const cthsm::EventBase&) {
             ++d.runtime_entries;
           }),
           entry([](cthsm::Context&, Device& d, const StartEvent&) {

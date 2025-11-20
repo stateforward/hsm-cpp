@@ -22,25 +22,25 @@ struct TestInstance : public Instance {
 };
 
 // Behaviors
-void entry_a(Context&, Instance& i, const AnyEvent&) {
+void entry_a(Context&, Instance& i, const EventBase&) {
   static_cast<TestInstance&>(i).add_log("entry_a");
 }
 
-void exit_a(Context&, Instance& i, const AnyEvent&) {
+void exit_a(Context&, Instance& i, const EventBase&) {
   static_cast<TestInstance&>(i).add_log("exit_a");
 }
 
-void entry_b(Context&, Instance& i, const AnyEvent&) {
+void entry_b(Context&, Instance& i, const EventBase&) {
   static_cast<TestInstance&>(i).add_log("entry_b");
 }
 
-void effect_ab(Context&, Instance& i, const AnyEvent&) {
+void effect_ab(Context&, Instance& i, const EventBase&) {
   static_cast<TestInstance&>(i).add_log("effect_ab");
 }
 
-bool guard_true(Context&, Instance&, const AnyEvent&) { return true; }
+bool guard_true(Context&, Instance&, const EventBase&) { return true; }
 
-bool guard_false(Context&, Instance&, const AnyEvent&) { return false; }
+bool guard_false(Context&, Instance&, const EventBase&) { return false; }
 
 TEST_CASE("Behaviors - Entry/Exit/Effect") {
   constexpr auto model = define(
@@ -61,7 +61,7 @@ TEST_CASE("Behaviors - Entry/Exit/Effect") {
   inst.clear_log();
 
   // Dispatch
-  sm.dispatch(inst, cthsm::AnyEvent{"next"});
+  sm.dispatch(inst, cthsm::EventBase{"next"});
 
   // Check sequence: exit_a -> effect_ab -> entry_b
   CHECK(inst.log.size() == 3);
@@ -85,7 +85,7 @@ TEST_CASE("Behaviors - Guards") {
   TestInstance inst;
   sm.start(inst);
 
-  sm.dispatch(inst, cthsm::AnyEvent{"go"});
+  sm.dispatch(inst, cthsm::EventBase{"go"});
   CHECK(sm.state() == "/machine/allowed");
 }
 
@@ -107,7 +107,7 @@ TEST_CASE("Behaviors - Hierarchy Order") {
   CHECK(inst.log[1] == "entry_b");
 
   inst.clear_log();
-  sm.dispatch(inst, cthsm::AnyEvent{"out"});
+  sm.dispatch(inst, cthsm::EventBase{"out"});
 
   // Exit: child then parent
   // exit_a is parent, exit_child (none)

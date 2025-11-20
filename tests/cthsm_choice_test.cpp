@@ -26,112 +26,112 @@ struct ChoiceInstance : public Instance {
 };
 
 // Behaviors
-void entry_start(Context&, Instance& i, const AnyEvent&) {
+void entry_start(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_start");
 }
-void entry_positive(Context&, Instance& i, const AnyEvent&) {
+void entry_positive(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_positive");
 }
-void entry_negative(Context&, Instance& i, const AnyEvent&) {
+void entry_negative(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_negative");
 }
 
-void entry_large(Context&, Instance& i, const AnyEvent&) {
+void entry_large(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_large");
 }
-void entry_small_positive(Context&, Instance& i, const AnyEvent&) {
+void entry_small_positive(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_small_positive");
 }
-void entry_even(Context&, Instance& i, const AnyEvent&) {
+void entry_even(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_even");
 }
-void entry_other(Context&, Instance& i, const AnyEvent&) {
+void entry_other(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_other");
 }
 
-void entry_fallback(Context&, Instance& i, const AnyEvent&) {
+void entry_fallback(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_fallback");
 }
-void entry_default(Context&, Instance& i, const AnyEvent&) {
+void entry_default(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_default");
 }
 
-void entry_path_a(Context&, Instance& i, const AnyEvent&) {
+void entry_path_a(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_path_a");
 }
-void entry_path_b(Context&, Instance& i, const AnyEvent&) {
+void entry_path_b(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_path_b");
 }
 
-void effect_choice_to_a(Context&, Instance& i, const AnyEvent&) {
+void effect_choice_to_a(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("effect_choice_to_a");
 }
-void effect_choice_to_b(Context&, Instance& i, const AnyEvent&) {
+void effect_choice_to_b(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("effect_choice_to_b");
 }
-void effect_choice_to_default(Context&, Instance& i, const AnyEvent&) {
+void effect_choice_to_default(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("effect_choice_to_default");
 }
 
-void entry_container(Context&, Instance& i, const AnyEvent&) {
+void entry_container(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_container");
 }
-void entry_outside(Context&, Instance& i, const AnyEvent&) {
+void entry_outside(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_outside");
 }
 
-void entry_middle_a(Context&, Instance& i, const AnyEvent&) {
+void entry_middle_a(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_middle_a");
 }
-void entry_middle_b(Context&, Instance& i, const AnyEvent&) {
+void entry_middle_b(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_middle_b");
 }
-void entry_end_even(Context&, Instance& i, const AnyEvent&) {
+void entry_end_even(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_end_even");
 }
-void entry_end_odd(Context&, Instance& i, const AnyEvent&) {
+void entry_end_odd(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_end_odd");
 }
 
-void entry_target(Context&, Instance& i, const AnyEvent&) {
+void entry_target(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_target");
 }
 
-void entry_positive_and_a(Context&, Instance& i, const AnyEvent&) {
+void entry_positive_and_a(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_positive_and_a");
 }
-void entry_positive_and_b(Context&, Instance& i, const AnyEvent&) {
+void entry_positive_and_b(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_positive_and_b");
 }
-void entry_just_positive(Context&, Instance& i, const AnyEvent&) {
+void entry_just_positive(Context&, Instance& i, const EventBase&) {
   static_cast<ChoiceInstance&>(i).log("entry_just_positive");
 }
 
 // Guards
-bool guard_value_positive(Context&, Instance& i, const AnyEvent&) {
+bool guard_value_positive(Context&, Instance& i, const EventBase&) {
   return static_cast<ChoiceInstance&>(i).value > 0;
 }
-bool guard_value_even(Context&, Instance& i, const AnyEvent&) {
+bool guard_value_even(Context&, Instance& i, const EventBase&) {
   return (static_cast<ChoiceInstance&>(i).value % 2) == 0;
 }
-bool guard_value_greater_than_5(Context&, Instance& i, const AnyEvent&) {
+bool guard_value_greater_than_5(Context&, Instance& i, const EventBase&) {
   return static_cast<ChoiceInstance&>(i).value > 5;
 }
-bool guard_condition_a(Context&, Instance& i, const AnyEvent&) {
+bool guard_condition_a(Context&, Instance& i, const EventBase&) {
   return static_cast<ChoiceInstance&>(i).condition_a;
 }
-bool guard_condition_b(Context&, Instance& i, const AnyEvent&) {
+bool guard_condition_b(Context&, Instance& i, const EventBase&) {
   return static_cast<ChoiceInstance&>(i).condition_b;
 }
-bool guard_always_true(Context&, Instance&, const AnyEvent&) { return true; }
-bool guard_always_false(Context&, Instance&, const AnyEvent&) { return false; }
+bool guard_always_true(Context&, Instance&, const EventBase&) { return true; }
+bool guard_always_false(Context&, Instance&, const EventBase&) { return false; }
 
 // Complex guards
-bool guard_positive_and_a(Context&, Instance& i, const AnyEvent&) {
+bool guard_positive_and_a(Context&, Instance& i, const EventBase&) {
   auto& inst = static_cast<ChoiceInstance&>(i);
   return inst.value > 0 && inst.condition_a;
 }
-bool guard_positive_and_b(Context&, Instance& i, const AnyEvent&) {
+bool guard_positive_and_b(Context&, Instance& i, const EventBase&) {
   auto& inst = static_cast<ChoiceInstance&>(i);
   return inst.value > 0 && inst.condition_b;
 }
@@ -160,7 +160,7 @@ TEST_CASE("Choice States - Basic Functionality") {
 
       CHECK(sm.state() == "/SimpleChoice/start");
 
-      sm.dispatch(instance, cthsm::AnyEvent{"EVALUATE"});
+      sm.dispatch(instance, cthsm::EventBase{"EVALUATE"});
       CHECK(sm.state() == "/SimpleChoice/positive");
 
       REQUIRE(instance.execution_log.size() >= 2);
@@ -174,7 +174,7 @@ TEST_CASE("Choice States - Basic Functionality") {
 
       CHECK(sm.state() == "/SimpleChoice/start");
 
-      sm.dispatch(instance, cthsm::AnyEvent{"EVALUATE"});
+      sm.dispatch(instance, cthsm::EventBase{"EVALUATE"});
       CHECK(sm.state() == "/SimpleChoice/negative");
 
       REQUIRE(instance.execution_log.size() >= 2);
@@ -208,7 +208,7 @@ TEST_CASE("Choice States - Basic Functionality") {
       instance.value = 10;
       sm.start(instance);
 
-      sm.dispatch(instance, cthsm::AnyEvent{"EVALUATE"});
+      sm.dispatch(instance, cthsm::EventBase{"EVALUATE"});
       CHECK(sm.state() == "/MultipleGuards/large");
     }
 
@@ -216,7 +216,7 @@ TEST_CASE("Choice States - Basic Functionality") {
       instance.value = 3;
       sm.start(instance);
 
-      sm.dispatch(instance, cthsm::AnyEvent{"EVALUATE"});
+      sm.dispatch(instance, cthsm::EventBase{"EVALUATE"});
       CHECK(sm.state() == "/MultipleGuards/small_positive");
     }
 
@@ -224,7 +224,7 @@ TEST_CASE("Choice States - Basic Functionality") {
       instance.value = -4;
       sm.start(instance);
 
-      sm.dispatch(instance, cthsm::AnyEvent{"EVALUATE"});
+      sm.dispatch(instance, cthsm::EventBase{"EVALUATE"});
       CHECK(sm.state() == "/MultipleGuards/even");
     }
 
@@ -232,7 +232,7 @@ TEST_CASE("Choice States - Basic Functionality") {
       instance.value = -3;
       sm.start(instance);
 
-      sm.dispatch(instance, cthsm::AnyEvent{"EVALUATE"});
+      sm.dispatch(instance, cthsm::EventBase{"EVALUATE"});
       CHECK(sm.state() == "/MultipleGuards/other");
     }
   }
@@ -257,7 +257,7 @@ TEST_CASE("Choice States - Guardless Fallback Requirements") {
     ChoiceInstance instance;
     sm.start(instance);
 
-    sm.dispatch(instance, cthsm::AnyEvent{"CHOOSE"});
+    sm.dispatch(instance, cthsm::EventBase{"CHOOSE"});
 
     CHECK(sm.state() == "/GuardlessFallback/fallback");
 
@@ -288,7 +288,7 @@ TEST_CASE("Choice States - Guardless Fallback Requirements") {
     ChoiceInstance instance;
     sm.start(instance);
 
-    sm.dispatch(instance, cthsm::AnyEvent{"TEST"});
+    sm.dispatch(instance, cthsm::EventBase{"TEST"});
     CHECK(sm.state() == "/AllGuardsFail/default");
   }
 }
@@ -319,7 +319,7 @@ TEST_CASE("Choice States - Effects on Transitions") {
       instance.condition_a = true;
       sm.start(instance);
 
-      sm.dispatch(instance, cthsm::AnyEvent{"GO"});
+      sm.dispatch(instance, cthsm::EventBase{"GO"});
       CHECK(sm.state() == "/ChoiceWithEffects/path_a");
 
       bool found_effect = false;
@@ -336,7 +336,7 @@ TEST_CASE("Choice States - Effects on Transitions") {
       // Both conditions false
       sm.start(instance);
 
-      sm.dispatch(instance, cthsm::AnyEvent{"GO"});
+      sm.dispatch(instance, cthsm::EventBase{"GO"});
       CHECK(sm.state() == "/ChoiceWithEffects/default");
 
       bool found_effect = false;
@@ -378,11 +378,11 @@ TEST_CASE("Choice States - Hierarchical Scenarios") {
 
     CHECK(sm.state() == "/NestedChoice/container/start");
 
-    sm.dispatch(instance, cthsm::AnyEvent{"DECIDE"});
+    sm.dispatch(instance, cthsm::EventBase{"DECIDE"});
     CHECK(sm.state() == "/NestedChoice/container/positive");
 
     // Exit the container state
-    sm.dispatch(instance, cthsm::AnyEvent{"EXIT"});
+    sm.dispatch(instance, cthsm::EventBase{"EXIT"});
     CHECK(sm.state() == "/NestedChoice/outside");
 
     // Verify execution order
@@ -419,10 +419,10 @@ TEST_CASE("Choice States - Hierarchical Scenarios") {
     instance.value = 6;
     sm.start(instance);
 
-    sm.dispatch(instance, cthsm::AnyEvent{"FIRST"});
+    sm.dispatch(instance, cthsm::EventBase{"FIRST"});
     CHECK(sm.state() == "/SequentialChoices/middle_a");
 
-    sm.dispatch(instance, cthsm::AnyEvent{"SECOND"});
+    sm.dispatch(instance, cthsm::EventBase{"SECOND"});
     CHECK(sm.state() == "/SequentialChoices/end_even");
 
     REQUIRE(instance.execution_log.size() >= 2);
@@ -464,15 +464,15 @@ TEST_CASE("Choice States - Error Conditions and Edge Cases") {
     instance.value = 5;
     sm.start(instance);
 
-    sm.dispatch(instance, cthsm::AnyEvent{"GO"});
+    sm.dispatch(instance, cthsm::EventBase{"GO"});
     CHECK(sm.state() == "/RapidChoices/positive");
 
     instance.value = -2;
-    sm.dispatch(instance, cthsm::AnyEvent{"NEXT"});
+    sm.dispatch(instance, cthsm::EventBase{"NEXT"});
     CHECK(sm.state() == "/RapidChoices/negative");
 
     instance.value = 3;
-    sm.dispatch(instance, cthsm::AnyEvent{"NEXT"});
+    sm.dispatch(instance, cthsm::EventBase{"NEXT"});
     CHECK(sm.state() == "/RapidChoices/positive");
   }
 
@@ -502,7 +502,7 @@ TEST_CASE("Choice States - Error Conditions and Edge Cases") {
       instance.condition_a = true;
       sm.start(instance);
 
-      sm.dispatch(instance, cthsm::AnyEvent{"EVALUATE"});
+      sm.dispatch(instance, cthsm::EventBase{"EVALUATE"});
       CHECK(sm.state() == "/ComplexGuards/positive_and_a");
     }
 
@@ -511,7 +511,7 @@ TEST_CASE("Choice States - Error Conditions and Edge Cases") {
       // Neither condition_a nor condition_b is set
       sm.start(instance);
 
-      sm.dispatch(instance, cthsm::AnyEvent{"EVALUATE"});
+      sm.dispatch(instance, cthsm::EventBase{"EVALUATE"});
       CHECK(sm.state() == "/ComplexGuards/just_positive");
     }
 
@@ -519,7 +519,7 @@ TEST_CASE("Choice States - Error Conditions and Edge Cases") {
       instance.value = -1;  // Negative
       sm.start(instance);
 
-      sm.dispatch(instance, cthsm::AnyEvent{"EVALUATE"});
+      sm.dispatch(instance, cthsm::EventBase{"EVALUATE"});
       CHECK(sm.state() == "/ComplexGuards/other");
     }
   }

@@ -47,6 +47,9 @@ struct lookup_tables {
   // Indices into normalized_model.transitions
   std::array<std::size_t, TransitionCount> completion_transitions_list{};
   
+  // Wildcard transitions for unknown events
+  std::array<std::size_t, StateCount> wildcard_transition_table{};
+
   constexpr std::size_t get_event_id(std::string_view name) const {
       // Binary search
       auto it = std::lower_bound(sorted_events.begin(), sorted_events.end(), name, 
@@ -61,6 +64,11 @@ struct lookup_tables {
   constexpr std::size_t get_transition_id(std::size_t state_id, std::size_t event_id) const {
       if (state_id >= StateCount || event_id >= EventCount) return invalid_index;
       return transition_table[state_id][event_id];
+  }
+
+  constexpr std::size_t get_wildcard_transition_id(std::size_t state_id) const {
+      if (state_id >= StateCount) return invalid_index;
+      return wildcard_transition_table[state_id];
   }
 };
 
@@ -118,6 +126,44 @@ consteval auto build_tables(const ModelData& data) {
             next_i++;
         }
         i = next_i;
+    }
+
+    // 2b. Wildcard Support
+    // Identify * event ID
+    std::size_t wildcard_event_id = invalid_index;
+    for (std::size_t i = 0; i < EC; ++i) {
+        if (data.get_event_name(i) == "*") {
+            wildcard_event_id = i;
+            break;
+        }
+    }
+
+    if (wildcard_event_id != invalid_index) {
+        for (std::size_t s = 0; s < SC; ++s) {
+            std::size_t wildcard_head = tables.transition_table[s][wildcard_event_id];
+            tables.wildcard_transition_table[s] = wildcard_head;
+
+            // Link explicit chains to wildcard chain
+            if (wildcard_head != invalid_index) {
+                for (std::size_t e = 0; e < EC; ++e) {
+                    if (e == wildcard_event_id) continue;
+                    
+                    std::size_t head = tables.transition_table[s][e];
+                    if (head == invalid_index) {
+                        tables.transition_table[s][e] = wildcard_head;
+                    } else {
+                        // Append to tail
+                        std::size_t tail = head;
+                        while (tables.next_candidate[tail] != invalid_index) {
+                            tail = tables.next_candidate[tail];
+                        }
+                        tables.next_candidate[tail] = wildcard_head;
+                    }
+                }
+            }
+        }
+    } else {
+        tables.wildcard_transition_table.fill(invalid_index);
     }
 
     // 3. Build Timer Tables

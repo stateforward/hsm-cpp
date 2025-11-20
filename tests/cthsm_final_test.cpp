@@ -22,31 +22,31 @@ struct FinalStatesInstance : public Instance {
 };
 
 // Action functions
-void log_entry_start(Context&, Instance& i, const AnyEvent&) {
+void log_entry_start(Context&, Instance& i, const EventBase&) {
   static_cast<FinalStatesInstance&>(i).log("entry_start");
 }
-void log_entry_active(Context&, Instance& i, const AnyEvent&) {
+void log_entry_active(Context&, Instance& i, const EventBase&) {
   static_cast<FinalStatesInstance&>(i).log("entry_active");
 }
-void log_entry_container(Context&, Instance& i, const AnyEvent&) {
+void log_entry_container(Context&, Instance& i, const EventBase&) {
   static_cast<FinalStatesInstance&>(i).log("entry_container");
 }
-void log_entry_working(Context&, Instance& i, const AnyEvent&) {
+void log_entry_working(Context&, Instance& i, const EventBase&) {
   static_cast<FinalStatesInstance&>(i).log("entry_working");
 }
-void log_entry_reset(Context&, Instance& i, const AnyEvent&) {
+void log_entry_reset(Context&, Instance& i, const EventBase&) {
   static_cast<FinalStatesInstance&>(i).log("entry_reset");
 }
-void log_entry_level1(Context&, Instance& i, const AnyEvent&) {
+void log_entry_level1(Context&, Instance& i, const EventBase&) {
   static_cast<FinalStatesInstance&>(i).log("entry_level1");
 }
-void log_entry_level2(Context&, Instance& i, const AnyEvent&) {
+void log_entry_level2(Context&, Instance& i, const EventBase&) {
   static_cast<FinalStatesInstance&>(i).log("entry_level2");
 }
-void log_entry_step1(Context&, Instance& i, const AnyEvent&) {
+void log_entry_step1(Context&, Instance& i, const EventBase&) {
   static_cast<FinalStatesInstance&>(i).log("entry_step1");
 }
-void log_entry_step2(Context&, Instance& i, const AnyEvent&) {
+void log_entry_step2(Context&, Instance& i, const EventBase&) {
   static_cast<FinalStatesInstance&>(i).log("entry_step2");
 }
 
@@ -66,7 +66,7 @@ TEST_CASE("Final States - Basic Functionality") {
     CHECK_FALSE(instance.final_reached);
 
     // Transition to final state
-    sm.dispatch(instance, cthsm::AnyEvent{"FINISH"});
+    sm.dispatch(instance, cthsm::EventBase{"FINISH"});
 
     CHECK(sm.state() == "/SimpleFinal/end");
 
@@ -91,17 +91,17 @@ TEST_CASE("Final States - Basic Functionality") {
     CHECK(sm.state() == "/MultipleFinal/active");
 
     SUBCASE("Success Path") {
-      sm.dispatch(instance, cthsm::AnyEvent{"SUCCESS"});
+      sm.dispatch(instance, cthsm::EventBase{"SUCCESS"});
       CHECK(sm.state() == "/MultipleFinal/success");
     }
 
     SUBCASE("Failure Path") {
-      sm.dispatch(instance, cthsm::AnyEvent{"FAILURE"});
+      sm.dispatch(instance, cthsm::EventBase{"FAILURE"});
       CHECK(sm.state() == "/MultipleFinal/failure");
     }
 
     SUBCASE("Cancel Path") {
-      sm.dispatch(instance, cthsm::AnyEvent{"CANCEL"});
+      sm.dispatch(instance, cthsm::EventBase{"CANCEL"});
       CHECK(sm.state() == "/MultipleFinal/cancelled");
     }
   }
@@ -120,7 +120,7 @@ TEST_CASE("Final States - Semantic Restrictions") {
     FinalStatesInstance instance;
     sm.start(instance);
 
-    sm.dispatch(instance, cthsm::AnyEvent{"FINISH"});
+    sm.dispatch(instance, cthsm::EventBase{"FINISH"});
     CHECK(sm.state() == "/FinalWithEntry/end");
 
     bool found_final_entry = false;
@@ -148,17 +148,17 @@ TEST_CASE("Final States - Semantic Restrictions") {
     FinalStatesInstance instance;
     sm.start(instance);
 
-    sm.dispatch(instance, cthsm::AnyEvent{"FINISH"});
+    sm.dispatch(instance, cthsm::EventBase{"FINISH"});
     CHECK(sm.state() == "/FinalNoTransitions/end");
 
     // Try various events - all should be ignored
-    sm.dispatch(instance, cthsm::AnyEvent{"RESTART"});
+    sm.dispatch(instance, cthsm::EventBase{"RESTART"});
     CHECK(sm.state() == "/FinalNoTransitions/end");
 
-    sm.dispatch(instance, cthsm::AnyEvent{"CONTINUE"});
+    sm.dispatch(instance, cthsm::EventBase{"CONTINUE"});
     CHECK(sm.state() == "/FinalNoTransitions/end");
 
-    sm.dispatch(instance, cthsm::AnyEvent{"ANY_EVENT"});
+    sm.dispatch(instance, cthsm::EventBase{"ANY_EVENT"});
     CHECK(sm.state() == "/FinalNoTransitions/end");
   }
 }
@@ -186,11 +186,11 @@ TEST_CASE("Final States - Hierarchical Scenarios") {
     CHECK(sm.state() == "/NestedFinal/container/working");
 
     // Complete the nested work
-    sm.dispatch(instance, cthsm::AnyEvent{"COMPLETE"});
+    sm.dispatch(instance, cthsm::EventBase{"COMPLETE"});
     CHECK(sm.state() == "/NestedFinal/container/done");
 
     // Parent state should still be able to handle events
-    sm.dispatch(instance, cthsm::AnyEvent{"RESET"});
+    sm.dispatch(instance, cthsm::EventBase{"RESET"});
     CHECK(sm.state() == "/NestedFinal/reset");
 
     // Check execution order
@@ -223,17 +223,17 @@ TEST_CASE("Final States - Hierarchical Scenarios") {
 
     SUBCASE("Inner Final First") {
       // Finish inner state first
-      sm.dispatch(instance, cthsm::AnyEvent{"FINISH_INNER"});
+      sm.dispatch(instance, cthsm::EventBase{"FINISH_INNER"});
       CHECK(sm.state() == "/HierarchicalFinals/level1/inner_done");
 
       // Then finish outer state
-      sm.dispatch(instance, cthsm::AnyEvent{"FINISH_OUTER"});
+      sm.dispatch(instance, cthsm::EventBase{"FINISH_OUTER"});
       CHECK(sm.state() == "/HierarchicalFinals/outer_done");
     }
 
     SUBCASE("Outer Final Direct") {
       // Finish outer state directly (should exit inner state)
-      sm.dispatch(instance, cthsm::AnyEvent{"FINISH_OUTER"});
+      sm.dispatch(instance, cthsm::EventBase{"FINISH_OUTER"});
       CHECK(sm.state() == "/HierarchicalFinals/outer_done");
     }
   }
@@ -266,11 +266,11 @@ TEST_CASE("Final States - Error Conditions and Edge Cases") {
     FinalStatesInstance instance;
     sm.start(instance);
 
-    sm.dispatch(instance, cthsm::AnyEvent{"FINISH"});
+    sm.dispatch(instance, cthsm::EventBase{"FINISH"});
     CHECK(sm.state() == "/FinalWithDeferred/end");
 
     // Events sent to final state should not be deferred or processed
-    sm.dispatch(instance, cthsm::AnyEvent{"DEFERRED_EVENT"});
+    sm.dispatch(instance, cthsm::EventBase{"DEFERRED_EVENT"});
     CHECK(sm.state() == "/FinalWithDeferred/end");
   }
 
@@ -292,13 +292,13 @@ TEST_CASE("Final States - Error Conditions and Edge Cases") {
     CHECK(sm.state() == "/RapidFinal/start");
 
     // Rapid succession of events leading to final state
-    sm.dispatch(instance, cthsm::AnyEvent{"STEP1"});
+    sm.dispatch(instance, cthsm::EventBase{"STEP1"});
     CHECK(sm.state() == "/RapidFinal/step1");
 
-    sm.dispatch(instance, cthsm::AnyEvent{"STEP2"});
+    sm.dispatch(instance, cthsm::EventBase{"STEP2"});
     CHECK(sm.state() == "/RapidFinal/step2");
 
-    sm.dispatch(instance, cthsm::AnyEvent{"FINAL"});
+    sm.dispatch(instance, cthsm::EventBase{"FINAL"});
     CHECK(sm.state() == "/RapidFinal/end");
 
     // Verify all entry actions were called

@@ -69,7 +69,7 @@ void noBehavior(hsm::Context& /*ctx*/, hsm::Instance& /*instance*/,
 }
 
 // Behaviors for CTHSM
-void cthsmBehavior(cthsm::Context&, cthsm::Instance&, const cthsm::AnyEvent&) {}
+void cthsmBehavior(cthsm::Context&, cthsm::Instance&, const cthsm::EventBase&) {}
 
 int main() {
   const int iterations = 100000;
@@ -182,9 +182,9 @@ int main() {
     auto start = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < iterations; ++i) {
-      sm.dispatch(instance, cthsm::AnyEvent{"start"});
-      sm.dispatch(instance, cthsm::AnyEvent{"process"});
-      sm.dispatch(instance, cthsm::AnyEvent{"finish"});
+      sm.dispatch(instance, cthsm::EventBase{"start"});
+      sm.dispatch(instance, cthsm::EventBase{"process"});
+      sm.dispatch(instance, cthsm::EventBase{"finish"});
     }
 
     auto end = std::chrono::high_resolution_clock::now();
