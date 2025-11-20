@@ -1,51 +1,51 @@
 {
-  "timestamp": "1763580784704740",
+  "timestamp": "1763656787569156",
   "results": [
     {
       "name": "1. Nested states (no entry/exit/activity)",
-      "transitionsPerSecond": 4.73373e+06,
+      "transitionsPerSecond": 3.68324e+06,
       "percentChange": 0,
       "iterations": 10000
     },
     {
       "name": "1.a With entry",
-      "transitionsPerSecond": 4.29923e+06,
-      "percentChange": -9.17885,
+      "transitionsPerSecond": 3.5014e+06,
+      "percentChange": -4.93697,
       "iterations": 10000
     },
     {
       "name": "1.b With entry+activity",
-      "transitionsPerSecond": 2.22198e+06,
-      "percentChange": -53.0608,
+      "transitionsPerSecond": 2.16943e+06,
+      "percentChange": -41.0999,
       "iterations": 10000
     },
     {
       "name": "1.c With entry+exit+activity",
-      "transitionsPerSecond": 1.22609e+06,
-      "percentChange": -74.0988,
+      "transitionsPerSecond": 1.91847e+06,
+      "percentChange": -47.9137,
       "iterations": 10000
     },
     {
       "name": "1.d With entry+exit+activity+effect",
-      "transitionsPerSecond": 2.09556e+06,
-      "percentChange": -55.7313,
+      "transitionsPerSecond": 1.9073e+06,
+      "percentChange": -48.2167,
       "iterations": 10000
     },
     {
       "name": "Deep nesting",
-      "transitionsPerSecond": 3.72162e+06,
+      "transitionsPerSecond": 3.02984e+06,
       "percentChange": 0,
       "iterations": 10000
     },
     {
       "name": "Cross hierarchy",
-      "transitionsPerSecond": 3.26797e+06,
+      "transitionsPerSecond": 2.8401e+06,
       "percentChange": 0,
       "iterations": 10000
     },
     {
       "name": "Invalid events",
-      "transitionsPerSecond": 1.59109e+07,
+      "transitionsPerSecond": 1.10254e+07,
       "percentChange": 0,
       "iterations": 10000
     }

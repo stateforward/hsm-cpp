@@ -1,0 +1,69 @@
+{
+  "timestamp": "1763656787349101",
+  "results": [
+    {
+      "name": "1. Nested states (no entry/exit/activity)",
+      "transitionsPerSecond": 337325,
+      "percentChange": 0,
+      "memoryUsedBytes": 0,
+      "peakMemoryBytes": 15904800768,
+      "iterations": 1000
+    },
+    {
+      "name": "1.a Nested states with entry functions",
+      "transitionsPerSecond": 304183,
+      "percentChange": -9.8251,
+      "memoryUsedBytes": 0,
+      "peakMemoryBytes": 15988686848,
+      "iterations": 1000
+    },
+    {
+      "name": "1.b Nested states with entry and activity functions",
+      "transitionsPerSecond": 41379.6,
+      "percentChange": -87.733,
+      "memoryUsedBytes": 83886080,
+      "peakMemoryBytes": 16139681792,
+      "iterations": 1000
+    },
+    {
+      "name": "1.c Nested states with entry, exit, and activity functions",
+      "transitionsPerSecond": 41783.3,
+      "percentChange": -87.6133,
+      "memoryUsedBytes": 83886080,
+      "peakMemoryBytes": 16257122304,
+      "iterations": 1000
+    },
+    {
+      "name": "1.d Nested states with entry, exit, activity, and transition effect",
+      "transitionsPerSecond": 40648.8,
+      "percentChange": -87.9497,
+      "memoryUsedBytes": 67108864,
+      "peakMemoryBytes": 16341008384,
+      "iterations": 1000
+    },
+    {
+      "name": "Deep nesting (3 levels) with entry/exit",
+      "transitionsPerSecond": 278555,
+      "percentChange": 0,
+      "memoryUsedBytes": 0,
+      "peakMemoryBytes": 16374562816,
+      "iterations": 10000
+    },
+    {
+      "name": "Cross-hierarchy transitions with entry/exit",
+      "transitionsPerSecond": 186425,
+      "percentChange": 0,
+      "memoryUsedBytes": 0,
+      "peakMemoryBytes": 16492003328,
+      "iterations": 10000
+    },
+    {
+      "name": "Invalid event handling (graceful failure)",
+      "transitionsPerSecond": 508130,
+      "percentChange": 0,
+      "memoryUsedBytes": 16777216,
+      "peakMemoryBytes": 16575889408,
+      "iterations": 500
+    }
+  ]
+}

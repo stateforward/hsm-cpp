@@ -63,6 +63,26 @@ TEST_CASE("Typed events dispatch and behavior resolution") {
   CHECK(sm.state() == "/device/idle");
 }
 
+TEST_CASE("Typed events ignore mismatched runtime events") {
+  compile<typed_model> sm;
+  Device dev;
+
+  sm.start(dev);
+  CHECK(dev.runtime_entries == 1);
+  CHECK(dev.typed_entries == 0);
+  CHECK(dev.guard_checks == 0);
+  CHECK(dev.effect_calls == 0);
+
+  // Dispatch an unrelated runtime event name; typed handlers for StartEvent
+  // must not fire, and the guard must not be evaluated.
+  sm.dispatch(dev, cthsm::EventBase{"UNRELATED"});
+
+  CHECK(dev.typed_entries == 0);
+  CHECK(dev.guard_checks == 0);
+  CHECK(dev.effect_calls == 0);
+  CHECK(sm.state() == "/device/idle");
+}
+
 TEST_CASE("Typed dispatch forwards event payloads") {
   compile<payload_model> sm;
   Device dev;

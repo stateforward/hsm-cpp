@@ -1,9 +1,9 @@
 Scenario,Transitions/sec,Change %,Iterations
-"1. Nested states (no entry/exit/activity)",4733728,0.0,10000
-"1.a With entry",4299226,-9.2,10000
-"1.b With entry+activity",2221975,-53.1,10000
-"1.c With entry+exit+activity",1226091,-74.1,10000
-"1.d With entry+exit+activity+effect",2095557,-55.7,10000
-"Deep nesting",3721623,0.0,10000
-"Cross hierarchy",3267974,0.0,10000
-"Invalid events",15910899,0.0,10000
+"1. Nested states (no entry/exit/activity)",3683241,0.0,10000
+"1.a With entry",3501401,-4.9,10000
+"1.b With entry+activity",2169433,-41.1,10000
+"1.c With entry+exit+activity",1918465,-47.9,10000
+"1.d With entry+exit+activity+effect",1907305,-48.2,10000
+"Deep nesting",3029844,0.0,10000
+"Cross hierarchy",2840102,0.0,10000
+"Invalid events",11025358,0.0,10000

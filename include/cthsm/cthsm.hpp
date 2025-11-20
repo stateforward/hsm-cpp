@@ -392,6 +392,35 @@ template <std::size_t N>
   return target(detail::make_fixed_string(path));
 }
 
+// UML 2.5 history pseudostates
+// Usage:
+//   transition(on(Event{}), target(cthsm::shallow_history("/Parent")))
+//   transition(on(Event{}), target(cthsm::deep_history("/Parent")))
+// where "/Parent" is the absolute path of the composite state whose
+// history is being targeted.
+
+template <typename Path>
+[[nodiscard]] constexpr auto shallow_history(Path parent) {
+  using path_type = std::decay_t<Path>;
+  return detail::shallow_history_path<path_type>{path_type{parent}};
+}
+
+template <std::size_t N>
+[[nodiscard]] constexpr auto shallow_history(const char (&parent)[N]) {
+  return shallow_history(detail::make_fixed_string(parent));
+}
+
+template <typename Path>
+[[nodiscard]] constexpr auto deep_history(Path parent) {
+  using path_type = std::decay_t<Path>;
+  return detail::deep_history_path<path_type>{path_type{parent}};
+}
+
+template <std::size_t N>
+[[nodiscard]] constexpr auto deep_history(const char (&parent)[N]) {
+  return deep_history(detail::make_fixed_string(parent));
+}
+
 template <typename... Events>
 [[nodiscard]] constexpr auto defer(Events... events) {
   return detail::defer_expr<std::decay_t<Events>...>{
@@ -651,6 +680,14 @@ struct compile {
   std::array<Context, total_timer_count> timer_contexts_;
   std::array<std::optional<ActiveTask>, total_timer_count> active_timer_tasks_;
 
+  // For UML 2.5 history pseudostates we store, for each state, the most
+  // recently active descendant leaf. This allows implementing both
+  // shallow and deep history:
+  //   - deep history: use the stored leaf directly
+  //   - shallow history: map the stored leaf to the direct child of the
+  //     composite and then follow its default initial chain
+  std::array<std::size_t, decltype(normalized_model)::state_count> last_active_leaf_{};
+
   std::size_t current_state_id_;
 
   // 6. Constructor & Destructor
@@ -662,7 +699,10 @@ struct compile {
         active_tasks_{},
         timer_contexts_{},
         active_timer_tasks_{},
-        current_state_id_(detail::invalid_index) {}
+        last_active_leaf_{},
+        current_state_id_(detail::invalid_index) {
+    last_active_leaf_.fill(detail::invalid_index);
+  }
 
   ~compile() {
     // Cancel all active tasks to unblock threads waiting on contexts
@@ -690,6 +730,7 @@ struct compile {
     // Reset
     deferred_count_ = 0;
     current_state_id_ = 0;  // Root
+    last_active_leaf_.fill(detail::invalid_index);
 
     // Enter root
     Context ctx{};
@@ -743,6 +784,14 @@ struct compile {
 
  public:
   // Removed handle_timer as per instruction.
+
+  constexpr void on_activity_complete(instance_type& instance, std::size_t idx) {
+      if (idx < active_tasks_.size()) {
+          active_tasks_[idx].reset();
+      }
+      Context ctx{};
+      resolve_completion(ctx, instance);
+  }
 
   constexpr void dispatch_timer_event(instance_type& instance,
                                       std::size_t timer_idx) {
@@ -829,9 +878,38 @@ struct compile {
 
   constexpr void execute_transition(Context& ctx, instance_type& instance,
                                     const EventBase& e, const auto& t) {
-    if (t.target_id != detail::invalid_index) {
+    if (t.target_id != detail::invalid_index || t.history != detail::history_kind::none) {
       std::size_t target = t.target_id;
       std::size_t old_state = current_state_id_;
+
+      // History resolution (UML 2.5 shallow / deep)
+      if (t.history != detail::history_kind::none) {
+        std::size_t parent = t.history_parent;
+        if (parent != detail::invalid_index) {
+          std::size_t leaf = last_active_leaf_[parent];
+          if (leaf == detail::invalid_index) {
+            // No prior history recorded – fall back to the composite's
+            // default initial chain as per UML.
+            target = parent;
+          } else if (t.history == detail::history_kind::deep) {
+            // Deep history: re-enter the exact leaf configuration.
+            target = leaf;
+          } else {
+            // Shallow history: re-enter the last active direct child of
+            // the composite, then follow its default initial chain.
+            std::size_t child = leaf;
+            while (child != detail::invalid_index) {
+              std::size_t p = normalized_model.states[child].parent_id;
+              if (p == parent) break;
+              child = p;
+            }
+            target = (child != detail::invalid_index) ? child : parent;
+          }
+        } else {
+          // Invalid history parent – treat as self-transition on current.
+          target = current_state_id_;
+        }
+      }
 
       exit_to_lca(ctx, instance, e, old_state, target, t.kind);
 
@@ -846,6 +924,9 @@ struct compile {
 
       resolve_initial(ctx, instance, e, target);
       resolve_completion(ctx, instance);
+      // After the microstep completes, record history information for all
+      // ancestor composites of the active leaf.
+      update_history_from_leaf(current_state_id_);
     } else {
       if (t.effect_start != detail::invalid_index) {
         for (std::size_t i = 0; i < t.effect_count; ++i) {
@@ -998,11 +1079,12 @@ struct compile {
           activity_contexts_[idx].reset();
           Context* activity_ctx = &activity_contexts_[idx];
 
-          auto task = task_provider_.create_task(
-              [idx, &instance, e, activity_ctx]() {
-                activity_table[idx](*activity_ctx, instance, e);
-              },
-              "activity", 0, 0);
+        auto task = task_provider_.create_task(
+            [this, idx, &instance, e, activity_ctx]() {
+              activity_table[idx](*activity_ctx, instance, e);
+              this->on_activity_complete(instance, idx);
+            },
+            "activity", 0, 0);
 
           active_tasks_[idx] = ActiveTask{std::move(task), activity_ctx};
         }
@@ -1053,26 +1135,63 @@ struct compile {
   constexpr void resolve_completion(Context& ctx, instance_type& instance) {
     if (current_state_id_ == detail::invalid_index) return;
 
-    const auto& range = tables.completion_transitions_ranges[current_state_id_];
-    if (range.count == 0) return;
-
-    for (std::size_t i = 0; i < range.count; ++i) {
-      std::size_t t_id = tables.completion_transitions_list[range.start + i];
-      const auto& t = normalized_model.transitions[t_id];
-
-      bool guard_passed = true;
-      if (t.guard_idx != detail::invalid_index) {
-        if (t.guard_idx < guard_table.size()) {
-          EventBase empty{""};
-          guard_passed = guard_table[t.guard_idx](ctx, instance, empty);
+    std::size_t curr = current_state_id_;
+    while (curr != detail::invalid_index) {
+      // Check if any activities are still running for this state
+      const auto& s = normalized_model.states[curr];
+      if (s.activity_start != detail::invalid_index) {
+        for (std::size_t i = 0; i < s.activity_count; ++i) {
+          std::size_t idx = s.activity_start + i;
+          if (idx < active_tasks_.size() && active_tasks_[idx].has_value()) {
+            // Activity is still running, so state is not complete.
+            return;
+          }
         }
       }
 
-      if (guard_passed) {
-        EventBase empty{""};
-        execute_transition(ctx, instance, empty, t);
-        return;
+      const auto& range = tables.completion_transitions_ranges[curr];
+      bool handled = false;
+      if (range.count > 0) {
+        for (std::size_t i = 0; i < range.count; ++i) {
+          std::size_t t_id = tables.completion_transitions_list[range.start + i];
+          const auto& t = normalized_model.transitions[t_id];
+
+          bool guard_passed = true;
+          if (t.guard_idx != detail::invalid_index) {
+            if (t.guard_idx < guard_table.size()) {
+              EventBase empty{""};
+              guard_passed = guard_table[t.guard_idx](ctx, instance, empty);
+            }
+          }
+
+          if (guard_passed) {
+            EventBase empty{""};
+            execute_transition(ctx, instance, empty, t);
+            handled = true;
+            break;
+          }
+        }
       }
+      
+      if (handled) return;
+
+      // If current state is Final, its parent is also considered complete,
+      // so we check for completion transitions on the parent.
+      if ((normalized_model.states[curr].flags & detail::state_flags::final) != detail::state_flags::none) {
+        curr = normalized_model.states[curr].parent_id;
+      } else {
+        break;
+      }
+    }
+  }
+
+  // Update history arrays from the currently active leaf state.
+  constexpr void update_history_from_leaf(std::size_t leaf_id) {
+    if (leaf_id == detail::invalid_index) return;
+    std::size_t curr = leaf_id;
+    while (curr != detail::invalid_index) {
+      last_active_leaf_[curr] = leaf_id;
+      curr = normalized_model.states[curr].parent_id;
     }
   }
 

@@ -315,6 +315,9 @@ constexpr std::size_t find_child_state(const ModelData& data, std::string_view p
 }
 
 // Helper to resolve target ID
+// For regular targets, target_path is a concrete state path or relative name.
+// For history targets, we never call this – history resolution is handled
+// separately via annotated transition_desc fields.
 template <typename ModelData>
 constexpr std::size_t resolve_target(const ModelData& data, std::string_view target_path, std::size_t source_id) {
     // 1. Exact match (Absolute)
@@ -612,13 +615,75 @@ constexpr void collect_transitions(ModelData&, populate_ctx<ModelData>&,
 // Helper to find target/event in partials
 template <typename Tuple, std::size_t I>
 constexpr std::string_view get_target_path(const Tuple& t) {
-    if constexpr (I >= std::tuple_size_v<Tuple>) return {};
-    else {
+    if constexpr (I >= std::tuple_size_v<Tuple>) {
+        return {};
+    } else {
         using Type = std::decay_t<decltype(get<I>(t))>;
         if constexpr (is_target<Type>::value) {
-            return get<I>(t).path.view();
+            // For regular targets, the path type is a fixed_string with view().
+            // For history targets, the path is a shallow_history_path/deep_history_path
+            // wrapper, which should not be treated as a concrete state path here.
+            using PathType = std::decay_t<decltype(get<I>(t).path)>;
+            if constexpr (requires(const PathType& p) { p.parent; }) {
+                // History targets are handled separately via get_history_parent_path.
+                // Returning an empty path here prevents resolve_target from running.
+                (void)t; // suppress unused warning in some compilers
+                return {};
+            } else {
+                return get<I>(t).path.view();
+            }
         } else {
-            return get_target_path<Tuple, I+1>(t);
+            return get_target_path<Tuple, I + 1>(t);
+        }
+    }
+}
+
+// History helpers – detect and extract history path wrappers
+
+using detail::shallow_history_path;
+using detail::deep_history_path;
+
+template <typename T>
+struct is_shallow_history_path : std::false_type {};
+
+template <typename Path>
+struct is_shallow_history_path<shallow_history_path<Path>> : std::true_type {};
+
+template <typename T>
+struct is_deep_history_path : std::false_type {};
+
+template <typename Path>
+struct is_deep_history_path<deep_history_path<Path>> : std::true_type {};
+
+template <typename Tuple, std::size_t I>
+constexpr std::string_view get_history_parent_path(const Tuple& t, history_kind& kind) {
+    if constexpr (I >= std::tuple_size_v<Tuple>) {
+        kind = history_kind::none;
+        return {};
+    } else {
+        using Type = std::decay_t<decltype(get<I>(t))>;
+        if constexpr (is_shallow_history_path<Type>::value) {
+            // Direct shallow_history(...) in the partial list
+            kind = history_kind::shallow;
+            return get<I>(t).parent.view();
+        } else if constexpr (is_deep_history_path<Type>::value) {
+            // Direct deep_history(...) in the partial list
+            kind = history_kind::deep;
+            return get<I>(t).parent.view();
+        } else if constexpr (is_target<Type>::value) {
+            // History wrapped inside target(...)
+            using PathType = std::decay_t<decltype(get<I>(t).path)>;
+            if constexpr (is_shallow_history_path<PathType>::value) {
+                kind = history_kind::shallow;
+                return get<I>(t).path.parent.view();
+            } else if constexpr (is_deep_history_path<PathType>::value) {
+                kind = history_kind::deep;
+                return get<I>(t).path.parent.view();
+            } else {
+                return get_history_parent_path<Tuple, I + 1>(t, kind);
+            }
+        } else {
+            return get_history_parent_path<Tuple, I + 1>(t, kind);
         }
     }
 }
@@ -705,8 +770,17 @@ constexpr void collect_transitions(ModelData& data, populate_ctx<ModelData>& ctx
     std::string_view target_path = get_target_path<decltype(node.elements), 0>(node.elements);
     std::string_view event_name = get_event_name<decltype(node.elements), 0>(node.elements);
     
+    // History annotation (if present)
+    history_kind h_kind = history_kind::none;
+    std::string_view history_parent_path = get_history_parent_path<decltype(node.elements), 0>(node.elements, h_kind);
+    
     std::size_t target_id = invalid_index;
-    if (!target_path.empty()) {
+    std::size_t history_parent_id = invalid_index;
+    if (!history_parent_path.empty()) {
+        // History transition – we resolve and cache the composite parent id only.
+        history_parent_id = find_state_id(data, history_parent_path);
+    } else if (!target_path.empty()) {
+        // Regular target resolution
         target_id = resolve_target(data, target_path, current_state_id);
     }
     
@@ -805,7 +879,9 @@ constexpr void collect_transitions(ModelData& data, populate_ctx<ModelData>& ctx
         .effect_start = effect_start,
         .effect_count = effect_count,
         .timer_type = t_kind,
-        .timer_idx = t_idx
+        .timer_idx = t_idx,
+        .history = h_kind,
+        .history_parent = history_parent_id
     };
 }
 

@@ -51,3 +51,38 @@ TEST_CASE("Deferral - Hierarchy") {
   // A re-dispatched -> done
   CHECK(sm.state() == "/machine/done");
 }
+
+struct DeferralCounterInstance : public Instance {
+  int processed_a{0};
+};
+
+void count_a(Context&, Instance& i, const EventBase&) {
+  static_cast<DeferralCounterInstance&>(i).processed_a++;
+}
+
+TEST_CASE("Deferral - Queue limit and re-dispatch") {
+  constexpr auto model = define(
+      "DeferralQueue", initial(target("idle")),
+      state("idle", defer("A"),
+            transition(on("GO"), target("processing"))),
+      state("processing",
+            transition(on("A"), effect(count_a), target("processing"))));
+
+  compile<model, DeferralCounterInstance> sm;
+  DeferralCounterInstance inst;
+  sm.start(inst);
+
+  CHECK(sm.state() == "/DeferralQueue/idle");
+
+  // Enqueue more events than the internal max_deferred (16)
+  for (int i = 0; i < 20; ++i) {
+    sm.dispatch(inst, cthsm::EventBase{"A"});
+  }
+
+  // Move to processing state, which will trigger re-processing of deferred
+  // events. Only the first 16 should have been queued and thus processed.
+  sm.dispatch(inst, cthsm::EventBase{"GO"});
+
+  CHECK(sm.state() == "/DeferralQueue/processing");
+  CHECK(inst.processed_a == 16);
+}

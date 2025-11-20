@@ -1,0 +1,9 @@
+Scenario,Transitions/sec,Change %,Memory (KB),Peak Memory (KB),Iterations
+"1. Nested states (no entry/exit/activity)",337325,0.0,0,15532032,1000
+"1.a Nested states with entry functions",304183,-9.8,0,15613952,1000
+"1.b Nested states with entry and activity functions",41380,-87.7,81920,15761408,1000
+"1.c Nested states with entry, exit, and activity functions",41783,-87.6,81920,15876096,1000
+"1.d Nested states with entry, exit, activity, and transition effect",40649,-87.9,65536,15958016,1000
+"Deep nesting (3 levels) with entry/exit",278555,0.0,0,15990784,10000
+"Cross-hierarchy transitions with entry/exit",186425,0.0,0,16105472,10000
+"Invalid event handling (graceful failure)",508130,0.0,16384,16187392,500

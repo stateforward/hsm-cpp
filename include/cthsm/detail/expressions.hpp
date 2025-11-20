@@ -78,6 +78,20 @@ struct target_expr {
   Path path;
 };
 
+// History target path wrappers. These do not introduce new states in the
+// normalized model – they annotate transitions so the runtime can resolve
+// history according to UML 2.5 (shallow / deep).
+
+template <typename Path>
+struct shallow_history_path {
+  Path parent; // absolute path of composite state owning the history pseudostate
+};
+
+template <typename Path>
+struct deep_history_path {
+  Path parent; // absolute path of composite state owning the history pseudostate
+};
+
 template <typename Path>
 struct source_expr {
   Path path;

@@ -35,6 +35,8 @@ enum class transition_kind : unsigned { external, internal, self, local };
 
 enum class timer_kind : unsigned { none, after, every, when, at };
 
+enum class history_kind : unsigned { none, shallow, deep };
+
 struct state_desc {
   std::size_t id{invalid_index};
   std::size_t name_offset{0};
@@ -74,6 +76,9 @@ struct transition_desc {
   
   timer_kind timer_type{timer_kind::none};
   std::size_t timer_idx{invalid_index};
+  
+  history_kind history{history_kind::none};
+  std::size_t history_parent{invalid_index};
 };
 
 struct event_desc {
