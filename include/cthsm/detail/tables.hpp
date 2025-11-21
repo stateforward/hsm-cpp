@@ -50,6 +50,9 @@ struct lookup_tables {
   // Wildcard transitions for unknown events
   std::array<std::size_t, StateCount> wildcard_transition_table{};
 
+  // Pre-computed LCA for transitions (optimization)
+  std::array<std::size_t, TransitionCount> transition_lca{};
+
   constexpr std::size_t get_event_id(std::string_view name) const {
       // Binary search
       auto it = std::lower_bound(sorted_events.begin(), sorted_events.end(), name, 
@@ -197,18 +200,60 @@ consteval auto build_tables(const ModelData& data) {
                 if (trans.source_id == s && 
                     trans.event_id == invalid_index && 
                     trans.timer_type == timer_kind::none &&
-                    trans.kind != transition_kind::local) { // Exclude initial transitions if they are marked local?
-                    // Initial transitions are usually stored in initial_transition_id, 
-                    // but they might appear in the transition list too?
-                    // In normalize.hpp, collect_transitions for initial() sets initial_transition_id.
-                    // But collect_transitions also adds them to the transitions array.
-                    // initial() transitions have kind=local.
-                    // Choice transitions have kind=external (default).
+                    trans.kind != transition_kind::local) { 
                     
                     tables.completion_transitions_list[current_list_idx++] = t;
                 }
             }
             tables.completion_transitions_ranges[s] = { start, current_list_idx - start };
+        }
+    }
+
+    // 5. Pre-compute LCAs
+    for (std::size_t t = 0; t < TC; ++t) {
+        const auto& trans = data.transitions[t];
+        tables.transition_lca[t] = invalid_index;
+
+        if (trans.target_id != invalid_index) {
+            // Compute LCA of source_id and target_id
+            std::size_t source = trans.source_id;
+            std::size_t target = trans.target_id;
+
+            // Use computed max_depth + 2 for safety (root + margin)
+            constexpr std::size_t BUFFER_SIZE = ModelData::max_depth + 2;
+
+            std::array<std::size_t, BUFFER_SIZE> source_path{};
+            std::size_t source_len = 0;
+            for (std::size_t s = source; s != invalid_index; s = data.states[s].parent_id) {
+                source_path[source_len++] = s;
+                if (source_len >= BUFFER_SIZE) break; // safety
+            }
+
+            std::array<std::size_t, BUFFER_SIZE> target_path{};
+            std::size_t target_len = 0;
+            for (std::size_t s = target; s != invalid_index; s = data.states[s].parent_id) {
+                target_path[target_len++] = s;
+                if (target_len >= BUFFER_SIZE) break;
+            }
+
+            std::size_t lca = invalid_index;
+            int i = static_cast<int>(source_len) - 1;
+            int j = static_cast<int>(target_len) - 1;
+            while (i >= 0 && j >= 0 && source_path[static_cast<std::size_t>(i)] == target_path[static_cast<std::size_t>(j)]) {
+                lca = source_path[static_cast<std::size_t>(i)];
+                i--;
+                j--;
+            }
+
+            if (trans.kind == transition_kind::external && source == target) {
+                if (data.states[source].parent_id != invalid_index) {
+                    lca = data.states[source].parent_id;
+                } else {
+                    lca = invalid_index;
+                }
+            }
+            
+            tables.transition_lca[t] = lca;
         }
     }
     

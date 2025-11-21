@@ -88,7 +88,7 @@ struct event_desc {
 };
 
 template <std::size_t StateCount, std::size_t TransitionCount,
-          std::size_t EventCount, std::size_t TimerCount, std::size_t DeferredCount, std::size_t StringBufferSize>
+          std::size_t EventCount, std::size_t TimerCount, std::size_t DeferredCount, std::size_t StringBufferSize, std::size_t MaxDepth>
 struct normalized_model_data {
   static constexpr std::size_t state_count = StateCount;
   static constexpr std::size_t transition_count = TransitionCount;
@@ -96,6 +96,7 @@ struct normalized_model_data {
   static constexpr std::size_t timer_count = TimerCount;
   static constexpr std::size_t deferred_count = DeferredCount;
   static constexpr std::size_t string_buffer_size = StringBufferSize;
+  static constexpr std::size_t max_depth = MaxDepth;
 
   std::array<state_desc, StateCount> states{};
   std::array<transition_desc, TransitionCount> transitions{};

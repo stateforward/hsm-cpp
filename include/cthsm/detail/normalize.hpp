@@ -65,6 +65,7 @@ struct model_counts {
   std::size_t effects = 0;
   std::size_t timers = 0;
   std::size_t deferred_entries = 0;
+  std::size_t max_depth = 0;
 
   constexpr model_counts operator+(const model_counts& other) const {
     return {
@@ -78,7 +79,8 @@ struct model_counts {
         guards + other.guards,
         effects + other.effects,
         timers + other.timers,
-        deferred_entries + other.deferred_entries
+        deferred_entries + other.deferred_entries,
+        (max_depth > other.max_depth) ? max_depth : other.max_depth
     };
   }
 };
@@ -123,6 +125,7 @@ consteval model_counts count_recursive(
   model_counts counts = count_partials(node.elements, current_len);
   counts.states += 1;
   counts.string_size += current_len;
+  counts.max_depth += 1;
   return counts;
 }
 
@@ -134,6 +137,7 @@ consteval model_counts count_recursive(
   model_counts counts = count_partials(node.elements, current_len);
   counts.states += 1;
   counts.string_size += current_len;
+  counts.max_depth += 1;
   return counts;
 }
 
@@ -145,6 +149,7 @@ consteval model_counts count_recursive(
   model_counts counts = count_partials(node.elements, current_len);
   counts.states += 1;
   counts.string_size += current_len;
+  counts.max_depth += 1;
   return counts;
 }
 
@@ -156,6 +161,7 @@ consteval model_counts count_recursive(
   model_counts counts{};
   counts.states += 1;
   counts.string_size += current_len;
+  counts.max_depth += 1;
   return counts;
 }
 
@@ -954,7 +960,7 @@ consteval auto normalize() {
   constexpr model_counts counts = count_recursive(Model, 0);
 
   using ModelDataType = normalized_model_data<counts.states, counts.transitions,
-                               counts.events, counts.timers, counts.deferred_entries, counts.string_size>;
+                               counts.events, counts.timers, counts.deferred_entries, counts.string_size, counts.max_depth>;
   ModelDataType data{};
   
   populate_ctx<ModelDataType> ctx{};

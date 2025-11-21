@@ -477,12 +477,13 @@ template <std::size_t N, typename... Partials>
 
 template <auto Model, typename InstanceType = Instance,
           typename TaskProvider = SequentialTaskProvider,
-          typename Clock = cthsm::Clock>
+          typename Clock = cthsm::Clock, std::size_t MaxDeferred = 16>
 struct compile {
   static constexpr auto model_ = Model;
   using instance_type = InstanceType;
   using TaskProviderType = TaskProvider;
   using ClockType = Clock;
+  static constexpr std::size_t max_deferred_events = MaxDeferred;
 
   // 1. Model Normalization & Tables
   static constexpr auto normalized_model = detail::normalize<model_>();
@@ -670,8 +671,7 @@ struct compile {
   // 5. Data Members
   TaskProvider task_provider_;
 
-  static constexpr std::size_t max_deferred = 16;
-  std::array<std::size_t, max_deferred> deferred_queue_;
+  std::array<std::size_t, max_deferred_events> deferred_queue_;
   std::size_t deferred_count_;
 
   std::array<Context, total_activity_count> activity_contexts_;
@@ -754,22 +754,35 @@ struct compile {
         std::is_base_of_v<EventBase, T> || std::is_base_of_v<Event<T>, T>,
         "Must be an Event");
     T e{};
-    dispatch_internal(instance, e, e.name());
+    
+    if constexpr (std::is_same_v<T, EventBase> || std::is_same_v<T, Event<void>>) {
+        dispatch_internal(instance, e, e.name());
+    } else {
+        // Compile-time lookup for typed events
+        constexpr std::size_t id = tables.get_event_id(detail::type_name<T>());
+        dispatch_by_id(instance, e, id);
+    }
   }
 
   template <typename T>
   constexpr void dispatch(instance_type& instance, const T& e) noexcept {
     static_assert(std::is_base_of_v<EventBase, T>, "Must be an Event");
-    dispatch_internal(instance, e, e.name());
+    
+    if constexpr (std::is_same_v<T, EventBase> || std::is_same_v<T, Event<void>>) {
+        dispatch_internal(instance, e, e.name());
+    } else {
+         // Compile-time lookup for typed events
+        constexpr std::size_t id = tables.get_event_id(detail::type_name<T>());
+        dispatch_by_id(instance, e, id);
+    }
   }
 
  private:
-  constexpr void dispatch_internal(instance_type& instance, const EventBase& e, std::string_view event_name) {
+  constexpr void dispatch_by_id(instance_type& instance, const EventBase& e, std::size_t event_id) {
      Context ctx{};
-     std::size_t event_id = tables.get_event_id(event_name);
      
      if (event_id != detail::invalid_index && is_deferred(current_state_id_, event_id)) {
-         if (deferred_count_ < max_deferred) {
+         if (deferred_count_ < max_deferred_events) {
              deferred_queue_[deferred_count_++] = event_id;
          }
          return;
@@ -780,6 +793,11 @@ struct compile {
      if (handled) {
          process_deferred(instance);
      }
+  }
+
+  constexpr void dispatch_internal(instance_type& instance, const EventBase& e, std::string_view event_name) {
+     std::size_t event_id = tables.get_event_id(event_name);
+     dispatch_by_id(instance, e, event_id);
   }
 
  public:
@@ -844,7 +862,7 @@ struct compile {
           }
 
           if (guard_passed) {
-            execute_transition(ctx, instance, e, t);
+            execute_transition(ctx, instance, e, t, t_id);
             return true;
           }
 
@@ -866,7 +884,7 @@ struct compile {
         }
 
         if (guard_passed) {
-          execute_transition(ctx, instance, e, t);
+          execute_transition(ctx, instance, e, t, t_id);
           return true;
         }
 
@@ -877,10 +895,11 @@ struct compile {
   }
 
   constexpr void execute_transition(Context& ctx, instance_type& instance,
-                                    const EventBase& e, const auto& t) {
+                                    const EventBase& e, const auto& t, std::size_t t_id) {
     if (t.target_id != detail::invalid_index || t.history != detail::history_kind::none) {
       std::size_t target = t.target_id;
       std::size_t old_state = current_state_id_;
+      std::size_t lca = detail::invalid_index;
 
       // History resolution (UML 2.5 shallow / deep)
       if (t.history != detail::history_kind::none) {
@@ -909,9 +928,14 @@ struct compile {
           // Invalid history parent – treat as self-transition on current.
           target = current_state_id_;
         }
+        // LCA must be calculated dynamically for history
+        // Fallback to runtime LCA
+      } else {
+        // Use pre-computed LCA
+        lca = tables.transition_lca[t_id];
       }
 
-      exit_to_lca(ctx, instance, e, old_state, target, t.kind);
+      exit_to_lca(ctx, instance, e, old_state, target, t.kind, lca);
 
       if (t.effect_start != detail::invalid_index) {
         for (std::size_t i = 0; i < t.effect_count; ++i) {
@@ -919,7 +943,7 @@ struct compile {
         }
       }
 
-      enter_from_lca(ctx, instance, e, old_state, target, t.kind);
+      enter_from_lca(ctx, instance, e, old_state, target, t.kind, lca);
       current_state_id_ = target;
 
       resolve_initial(ctx, instance, e, target);
@@ -939,7 +963,24 @@ struct compile {
   constexpr void exit_to_lca(
       Context& ctx, instance_type& instance, const EventBase& e,
       std::size_t source, std::size_t target,
-      detail::transition_kind kind = detail::transition_kind::external) {
+      detail::transition_kind kind, std::size_t lca) {
+    
+    if (lca == detail::invalid_index) {
+        // Fallback to full runtime calculation
+        exit_to_lca_runtime(ctx, instance, e, source, target, kind);
+        return;
+    }
+
+    for (std::size_t s = source; s != lca && s != detail::invalid_index;
+         s = normalized_model.states[s].parent_id) {
+      exit_state(ctx, instance, e, s);
+    }
+  }
+
+  constexpr void exit_to_lca_runtime(
+      Context& ctx, instance_type& instance, const EventBase& e,
+      std::size_t source, std::size_t target,
+      detail::transition_kind kind) {
     std::array<std::size_t, 16> source_path;
     std::size_t source_len = 0;
     for (std::size_t s = source; s != detail::invalid_index;
@@ -966,11 +1007,9 @@ struct compile {
     }
 
     if (kind == detail::transition_kind::external && source == target) {
-      // External self-transition: LCA is parent
       if (normalized_model.states[source].parent_id != detail::invalid_index) {
         lca = normalized_model.states[source].parent_id;
       } else {
-        // Root self-transition? LCA is invalid_index effectively (exit all)
         lca = detail::invalid_index;
       }
     }
@@ -984,7 +1023,32 @@ struct compile {
   constexpr void enter_from_lca(
       Context& ctx, instance_type& instance, const EventBase& e,
       std::size_t source, std::size_t target,
-      detail::transition_kind kind = detail::transition_kind::external) {
+      detail::transition_kind kind, std::size_t lca) {
+
+    if (lca == detail::invalid_index) {
+         enter_from_lca_runtime(ctx, instance, e, source, target, kind);
+         return;
+    }
+
+    std::array<std::size_t, 16> target_path;
+    std::size_t target_len = 0;
+    
+    // Build path from target up to LCA
+    for (std::size_t s = target; s != lca && s != detail::invalid_index;
+         s = normalized_model.states[s].parent_id) {
+      target_path[target_len++] = s;
+    }
+
+    // Enter in reverse (from LCA down to target)
+    for (int j = static_cast<int>(target_len) - 1; j >= 0; j--) {
+      enter_state(ctx, instance, e, target_path[static_cast<std::size_t>(j)]);
+    }
+  }
+
+  constexpr void enter_from_lca_runtime(
+      Context& ctx, instance_type& instance, const EventBase& e,
+      std::size_t source, std::size_t target,
+      detail::transition_kind kind) {
     std::array<std::size_t, 16> source_path;
     std::size_t source_len = 0;
     for (std::size_t s = source; s != detail::invalid_index;
@@ -1009,16 +1073,6 @@ struct compile {
     }
 
     if (kind == detail::transition_kind::external && source == target) {
-      // Reset i, j to parent level (force entry from parent down)
-      // source == target, so paths are same. i and j ended at -1 (if fully
-      // matched). We want to enter starting from source (which is target).
-      // target_path[0] is target.
-      // We want j to start at 0.
-      // If we just force logic, we can recalculate j.
-      // The loop decremented j until it didn't match or exhausted.
-      // If source == target, it exhausted (-1).
-      // We want to enter target. So we need loop `for (; j >= 0; j--)` to run
-      // for j=0. So set j = 0? Yes, target is at index 0.
       j = 0;
     }
 
@@ -1122,7 +1176,7 @@ struct compile {
       }
       if (t.target_id != detail::invalid_index) {
         enter_from_lca(ctx, instance, e, current, t.target_id,
-                       detail::transition_kind::local);
+                       detail::transition_kind::local, current); // LCA is current/parent
         current = t.target_id;
         current_state_id_ = current;
         init = normalized_model.states[current].initial_transition_id;
@@ -1166,7 +1220,7 @@ struct compile {
 
           if (guard_passed) {
             EventBase empty{""};
-            execute_transition(ctx, instance, empty, t);
+            execute_transition(ctx, instance, empty, t, t_id);
             handled = true;
             break;
           }
@@ -1199,13 +1253,13 @@ struct compile {
     std::size_t count = deferred_count_;
     if (count == 0) return;
 
-    std::array<std::size_t, max_deferred> current_queue = deferred_queue_;
+    std::array<std::size_t, max_deferred_events> current_queue = deferred_queue_;
     deferred_count_ = 0;
 
     for (std::size_t i = 0; i < count; ++i) {
       std::size_t evt_id = current_queue[i];
       if (is_deferred(current_state_id_, evt_id)) {
-        if (deferred_count_ < max_deferred) {
+        if (deferred_count_ < max_deferred_events) {
           deferred_queue_[deferred_count_++] = evt_id;
         }
       } else {
