@@ -1,6 +1,6 @@
-# HSM: Hierarchical State Machine for C++23
+# HSM: Hierarchical State Machine for C++20
 
-A modern, header-only C++23 library for building hierarchical state machines (HSM) with a focus on clean syntax, type safety, and performance.
+A modern, header-only C++20 library for building hierarchical state machines (HSM) with a focus on clean syntax, type safety, and performance.
 
 The library provides two implementations to suit different needs:
 - **`hsm`**: A dynamic, runtime-configurable state machine library suited for applications requiring flexibility.
@@ -19,7 +19,7 @@ The library provides two implementations to suit different needs:
 
 ## Requirements
 
-*   **C++ Compiler**: Requires a compiler with **C++23** support (e.g., Clang 16+, GCC 13+, MSVC 2022 17.6+).
+*   **C++ Compiler**: Requires a compiler with **C++20** support (e.g., Clang 14+, GCC 11+, MSVC 2019 16.11+).
 *   **CMake**: Version 3.16 or higher.
 
 ## Installation

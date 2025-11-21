@@ -19,7 +19,7 @@ TEST_CASE("Configurable Defer Queue Size") {
 
   // Compile with a tiny queue size of 2
   // cthsm::compile<Model, Instance, TaskProvider, Clock, MaxDeferred>
-  using MachineType = compile<model, Instance, SequentialTaskProvider, Clock, 2>;
+  using MachineType = compile<model, Instance, SequentialTaskProvider, Clock, Context, 2>;
   
   MachineType sm;
   Instance inst;
@@ -70,7 +70,7 @@ TEST_CASE("Configurable Defer Queue Size - Functional") {
   );
 
   // MaxDeferred = 2
-  using MachineType = compile<model, CounterInstance, SequentialTaskProvider, Clock, 2>;
+  using MachineType = compile<model, CounterInstance, SequentialTaskProvider, Clock, Context, 2>;
   
   MachineType sm;
   CounterInstance inst;
@@ -102,7 +102,7 @@ TEST_CASE("Configurable Defer Queue Size - Large") {
     );
     
     // MaxDeferred = 100
-    using MachineType = compile<model, Instance, SequentialTaskProvider, Clock, 100>;
+    using MachineType = compile<model, Instance, SequentialTaskProvider, Clock, Context, 100>;
     MachineType sm;
     Instance inst;
     sm.start(inst);

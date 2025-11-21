@@ -477,12 +477,14 @@ template <std::size_t N, typename... Partials>
 
 template <auto Model, typename InstanceType = Instance,
           typename TaskProvider = SequentialTaskProvider,
-          typename Clock = cthsm::Clock, std::size_t MaxDeferred = 16>
+          typename Clock = cthsm::Clock, typename ContextType = cthsm::Context,
+          std::size_t MaxDeferred = 16>
 struct compile {
   static constexpr auto model_ = Model;
   using instance_type = InstanceType;
   using TaskProviderType = TaskProvider;
   using ClockType = Clock;
+  using context_type = ContextType;
   static constexpr std::size_t max_deferred_events = MaxDeferred;
 
   // 1. Model Normalization & Tables
@@ -503,18 +505,20 @@ struct compile {
   static constexpr std::size_t total_timer_count =
       std::tuple_size_v<decltype(timer_tuple)>;
 
+  static constexpr std::size_t max_concurrent_tasks = total_activity_count + total_timer_count;
+
   struct ActiveTask {
     typename TaskProvider::TaskHandle task;
-    Context* ctx;
+    ContextType* ctx;
   };
 
   // 4. Thunk Types & Functions
-  using behavior_fn = void (*)(Context&, instance_type&, const EventBase&);
-  using guard_fn = bool (*)(Context&, instance_type&, const EventBase&);
-  using timer_fn = void (*)(Context&, instance_type&, const EventBase&, std::size_t, compile&, detail::timer_kind); 
+  using behavior_fn = void (*)(ContextType&, instance_type&, const EventBase&);
+  using guard_fn = bool (*)(ContextType&, instance_type&, const EventBase&);
+  using timer_fn = void (*)(ContextType&, instance_type&, const EventBase&, std::size_t, compile&, detail::timer_kind); 
 
   template <typename F>
-  static constexpr auto invoke(F&& f, Context& c, instance_type& i,
+  static constexpr auto invoke(F&& f, ContextType& c, instance_type& i,
                                const EventBase& e) -> decltype(auto) {
     using TargetInst =
         typename detail::extract_instance_type<std::decay_t<F>>::type;
@@ -523,7 +527,7 @@ struct compile {
                                        instance_type>;
     auto& eff_i = static_cast<EffInst&>(i);
 
-    if constexpr (std::is_invocable_v<F, Context&, EffInst&,
+    if constexpr (std::is_invocable_v<F, ContextType&, EffInst&,
                                       const EventBase&>) {
       return f(c, eff_i, e);
     } else if constexpr (std::is_invocable_v<F, EffInst&, const EventBase&>) {
@@ -539,7 +543,7 @@ struct compile {
       if constexpr (!std::is_void_v<ArgType> &&
                     !std::is_same_v<ArgType, EventBase>) {
         if (e.name() == detail::type_name<ArgType>()) {
-          if constexpr (std::is_invocable_v<F, Context&, EffInst&,
+          if constexpr (std::is_invocable_v<F, ContextType&, EffInst&,
                                             const ArgType&>) {
             return f(c, eff_i, static_cast<const ArgType&>(e));
           } else if constexpr (std::is_invocable_v<F, EffInst&,
@@ -549,8 +553,8 @@ struct compile {
         }
         
         // Fallback for mismatch
-        if constexpr (std::is_invocable_v<F, Context&, EffInst&, const ArgType&>) {
-            using R = std::invoke_result_t<F, Context&, EffInst&, const ArgType&>;
+        if constexpr (std::is_invocable_v<F, ContextType&, EffInst&, const ArgType&>) {
+            using R = std::invoke_result_t<F, ContextType&, EffInst&, const ArgType&>;
             if constexpr (std::is_same_v<R, bool>) return false;
             else return;
         } else if constexpr (std::is_invocable_v<F, EffInst&, const ArgType&>) {
@@ -566,12 +570,12 @@ struct compile {
     }
   }
 
-  template <std::size_t I> static void entry_thunk(Context& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(entry_tuple), c, i, e); }
-  template <std::size_t I> static void exit_thunk(Context& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(exit_tuple), c, i, e); }
-  template <std::size_t I> static void activity_thunk(Context& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(activity_tuple), c, i, e); }
-  template <std::size_t I> static void effect_thunk(Context& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(effect_tuple), c, i, e); }
-  template <std::size_t I> static bool guard_thunk(Context& c, instance_type& i, const EventBase& e) { return invoke(std::get<I>(guard_tuple), c, i, e); }
-  template <std::size_t I> static void timer_thunk(Context& c, instance_type& i, const EventBase& e, std::size_t /*id*/, compile& self, detail::timer_kind kind) { 
+  template <std::size_t I> static void entry_thunk(ContextType& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(entry_tuple), c, i, e); }
+  template <std::size_t I> static void exit_thunk(ContextType& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(exit_tuple), c, i, e); }
+  template <std::size_t I> static void activity_thunk(ContextType& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(activity_tuple), c, i, e); }
+  template <std::size_t I> static void effect_thunk(ContextType& c, instance_type& i, const EventBase& e) { invoke(std::get<I>(effect_tuple), c, i, e); }
+  template <std::size_t I> static bool guard_thunk(ContextType& c, instance_type& i, const EventBase& e) { return invoke(std::get<I>(guard_tuple), c, i, e); }
+  template <std::size_t I> static void timer_thunk(ContextType& c, instance_type& i, const EventBase& e, std::size_t /*id*/, compile& self, detail::timer_kind kind) {
       // Dispatch based logic: 
       // 1. Find transition associated with this timer index
       // 2. Get event name from transition
@@ -674,10 +678,10 @@ struct compile {
   std::array<std::size_t, max_deferred_events> deferred_queue_;
   std::size_t deferred_count_;
 
-  std::array<Context, total_activity_count> activity_contexts_;
+  std::array<ContextType, total_activity_count> activity_contexts_;
   std::array<std::optional<ActiveTask>, total_activity_count> active_tasks_;
 
-  std::array<Context, total_timer_count> timer_contexts_;
+  std::array<ContextType, total_timer_count> timer_contexts_;
   std::array<std::optional<ActiveTask>, total_timer_count> active_timer_tasks_;
 
   // For UML 2.5 history pseudostates we store, for each state, the most
@@ -733,7 +737,7 @@ struct compile {
     last_active_leaf_.fill(detail::invalid_index);
 
     // Enter root
-    Context ctx{};
+    ContextType ctx{};
     EventBase e{"init"};
     enter_state(ctx, instance, e, 0);
 
@@ -779,7 +783,7 @@ struct compile {
 
  private:
   constexpr void dispatch_by_id(instance_type& instance, const EventBase& e, std::size_t event_id) {
-     Context ctx{};
+     ContextType ctx{};
      
      if (event_id != detail::invalid_index && is_deferred(current_state_id_, event_id)) {
          if (deferred_count_ < max_deferred_events) {
@@ -807,7 +811,7 @@ struct compile {
       if (idx < active_tasks_.size()) {
           active_tasks_[idx].reset();
       }
-      Context ctx{};
+      ContextType ctx{};
       resolve_completion(ctx, instance);
   }
 
@@ -842,7 +846,7 @@ struct compile {
     return false;
   }
 
-  constexpr bool dispatch_event_impl(Context& ctx, instance_type& instance, const EventBase& e, std::size_t event_id) {
+  constexpr bool dispatch_event_impl(ContextType& ctx, instance_type& instance, const EventBase& e, std::size_t event_id) {
       if (current_state_id_ == detail::invalid_index) return false;
       
       std::size_t curr = current_state_id_;
@@ -1118,7 +1122,7 @@ struct compile {
     }
   }
 
-  constexpr void enter_state(Context& ctx, instance_type& instance,
+  constexpr void enter_state(ContextType& ctx, instance_type& instance,
                              const EventBase& e, std::size_t s_id) {
     const auto& s = normalized_model.states[s_id];
     if (s.entry_start != detail::invalid_index) {
@@ -1131,7 +1135,7 @@ struct compile {
         std::size_t idx = s.activity_start + i;
         if (idx < active_tasks_.size()) {
           activity_contexts_[idx].reset();
-          Context* activity_ctx = &activity_contexts_[idx];
+          ContextType* activity_ctx = &activity_contexts_[idx];
 
         auto task = task_provider_.create_task(
             [this, idx, &instance, e, activity_ctx]() {
@@ -1149,7 +1153,7 @@ struct compile {
       auto& timer = tables.state_timer_list[range.start + i];
       if (timer.timer_idx < timer_table.size()) {
         timer_contexts_[timer.timer_idx].reset();
-        Context* timer_ctx = &timer_contexts_[timer.timer_idx];
+        ContextType* timer_ctx = &timer_contexts_[timer.timer_idx];
 
         auto task = task_provider_.create_task(
             [this, &instance, e, timer, timer_ctx]() {
@@ -1164,7 +1168,7 @@ struct compile {
     }
   }
 
-  constexpr void resolve_initial(Context& ctx, instance_type& instance,
+  constexpr void resolve_initial(ContextType& ctx, instance_type& instance,
                                  const EventBase& e, std::size_t current) {
     std::size_t init = normalized_model.states[current].initial_transition_id;
     while (init != detail::invalid_index) {
@@ -1186,7 +1190,7 @@ struct compile {
     }
   }
 
-  constexpr void resolve_completion(Context& ctx, instance_type& instance) {
+  constexpr void resolve_completion(ContextType& ctx, instance_type& instance) {
     if (current_state_id_ == detail::invalid_index) return;
 
     std::size_t curr = current_state_id_;
